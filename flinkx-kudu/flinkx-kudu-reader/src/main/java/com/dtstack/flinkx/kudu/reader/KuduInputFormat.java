@@ -34,6 +34,9 @@ import java.util.List;
 /**
  * @author jiangbo
  * @date 2019/7/31
+ *
+ *
+ * me
  */
 public class KuduInputFormat extends BaseRichInputFormat {
 
