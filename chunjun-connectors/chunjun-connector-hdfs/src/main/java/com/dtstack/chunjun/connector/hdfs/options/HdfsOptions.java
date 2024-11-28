@@ -25,11 +25,6 @@ import org.apache.flink.configuration.ConfigOptions;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Date: 2021/06/17 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class HdfsOptions extends BaseFileOptions {
     public static final ConfigOption<String> DEFAULT_FS =
             ConfigOptions.key("default-fs")
@@ -81,4 +76,10 @@ public class HdfsOptions extends BaseFileOptions {
     private static boolean hasHadoopConfig(Map<String, String> tableOptions) {
         return tableOptions.keySet().stream().anyMatch((k) -> k.startsWith("properties."));
     }
+
+    public static final ConfigOption<String> SINK_COMMIT_FINISHED_FILE_NAME =
+            ConfigOptions.key("sink.commit.finished-file.name")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("The file name for finished-file partition commit policy");
 }

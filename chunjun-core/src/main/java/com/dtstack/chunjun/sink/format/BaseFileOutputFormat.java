@@ -18,7 +18,7 @@
 
 package com.dtstack.chunjun.sink.format;
 
-import com.dtstack.chunjun.conf.BaseFileConf;
+import com.dtstack.chunjun.config.BaseFileConfig;
 import com.dtstack.chunjun.enums.Semantic;
 import com.dtstack.chunjun.enums.SizeUnitType;
 import com.dtstack.chunjun.sink.WriteMode;
@@ -27,6 +27,7 @@ import com.dtstack.chunjun.throwable.WriteRecordException;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.table.data.RowData;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
@@ -34,14 +35,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author jiangbo
- * @date 2019/8/28
- */
+@Slf4j
 public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
+    private static final long serialVersionUID = 338925088080739415L;
 
     protected static final String TMP_DIR_NAME = ".data";
-    protected BaseFileConf baseFileConf;
+    protected BaseFileConfig baseFileConfig;
     /** The first half of the file name currently written */
     protected String currentFileNamePrefix;
     /** Full file name */
@@ -63,8 +62,8 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
     @Override
     public void initializeGlobal(int parallelism) {
         initVariableFields();
-        if (WriteMode.OVERWRITE.name().equalsIgnoreCase(baseFileConf.getWriteMode())
-                && StringUtils.isBlank(baseFileConf.getSavePointPath())) {
+        if (WriteMode.OVERWRITE.name().equalsIgnoreCase(baseFileConfig.getWriteMode())
+                && StringUtils.isBlank(baseFileConfig.getSavePointPath())) {
             // not delete the data directory when restoring from checkpoint
             deleteDataDir();
         } else {
@@ -77,6 +76,7 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
     public void finalizeGlobal(int parallelism) {
         initVariableFields();
         moveAllTmpDataFileToDir();
+        super.finalizeGlobal(parallelism);
     }
 
     @Override
@@ -91,24 +91,29 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
         if (null != formatState && formatState.getFileIndex() > -1) {
             currentFileIndex = formatState.getFileIndex() + 1;
         }
-        LOG.info("Start current File Index:{}", currentFileIndex);
+        log.info("Start current File Index:{}", currentFileIndex);
 
         currentFileNamePrefix = jobId + "_" + taskNumber;
-        LOG.info("Channel:[{}], currentFileNamePrefix:[{}]", taskNumber, currentFileNamePrefix);
+        log.info("Channel:[{}], currentFileNamePrefix:[{}]", taskNumber, currentFileNamePrefix);
 
         initVariableFields();
     }
 
     protected void initVariableFields() {
         // The file name here is actually the partition name
-        if (StringUtils.isNotBlank(baseFileConf.getFileName())) {
+        if (StringUtils.isNotBlank(baseFileConfig.getFileName())) {
             outputFilePath =
-                    baseFileConf.getPath() + File.separatorChar + baseFileConf.getFileName();
+                    baseFileConfig.getPath() + File.separatorChar + baseFileConfig.getFileName();
         } else {
-            outputFilePath = baseFileConf.getPath();
+            outputFilePath = baseFileConfig.getPath();
         }
-        tmpPath = outputFilePath + File.separatorChar + TMP_DIR_NAME;
-        nextNumForCheckDataSize = baseFileConf.getNextCheckRows();
+        tmpPath =
+                outputFilePath
+                        + File.separatorChar
+                        + TMP_DIR_NAME
+                        + baseFileConfig.getJobIdentifier();
+        log.info("[initVariableFields] get tmpPath: {}", tmpPath);
+        nextNumForCheckDataSize = baseFileConfig.getNextCheckRows();
         openSource();
     }
 
@@ -117,7 +122,7 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
     }
 
     @Override
-    protected void writeMultipleRecordsInternal() {
+    protected void writeMultipleRecordsInternal() throws Exception {
         throw new UnsupportedOperationException("Do not support batch write");
     }
 
@@ -130,16 +135,16 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
         lastWriteTime = System.currentTimeMillis();
     }
 
-    private void checkCurrentFileSize() {
+    protected void checkCurrentFileSize() {
         if (numWriteCounter.getLocalValue() < nextNumForCheckDataSize) {
             return;
         }
         long currentFileSize = getCurrentFileSize();
-        if (currentFileSize > baseFileConf.getMaxFileSize()) {
+        if (currentFileSize > baseFileConfig.getMaxFileSize()) {
             flushData();
         }
-        nextNumForCheckDataSize += baseFileConf.getNextCheckRows();
-        LOG.info(
+        nextNumForCheckDataSize += baseFileConfig.getNextCheckRows();
+        log.info(
                 "current file: {}, size = {}, nextNumForCheckDataSize = {}",
                 currentFileName,
                 SizeUnitType.readableFileSize(currentFileSize),
@@ -150,7 +155,7 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
         if (rowsOfCurrentBlock != 0) {
             flushDataInternal();
             sumRowsOfBlock += rowsOfCurrentBlock;
-            LOG.info(
+            log.info(
                     "flush file:{}, rowsOfCurrentBlock = {}, sumRowsOfBlock = {}",
                     currentFileName,
                     rowsOfCurrentBlock,
@@ -258,7 +263,7 @@ public abstract class BaseFileOutputFormat extends BaseRichOutputFormat {
         return lastWriteTime;
     }
 
-    public void setBaseFileConf(BaseFileConf baseFileConf) {
-        this.baseFileConf = baseFileConf;
+    public void setBaseFileConfig(BaseFileConfig baseFileConfig) {
+        this.baseFileConfig = baseFileConfig;
     }
 }

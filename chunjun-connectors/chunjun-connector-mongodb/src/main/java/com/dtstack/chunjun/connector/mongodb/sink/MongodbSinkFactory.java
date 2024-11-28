@@ -18,12 +18,12 @@
 
 package com.dtstack.chunjun.connector.mongodb.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.mongodb.converter.MongodbRawTypeConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.mongodb.converter.MongodbRawTypeMapper;
 import com.dtstack.chunjun.connector.mongodb.datasync.MongoConverterFactory;
-import com.dtstack.chunjun.connector.mongodb.datasync.MongodbDataSyncConf;
+import com.dtstack.chunjun.connector.mongodb.datasync.MongodbDataSyncConfig;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.sink.SinkFactory;
 import com.dtstack.chunjun.util.GsonUtil;
 
@@ -34,35 +34,31 @@ import org.apache.flink.table.data.RowData;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-/**
- * @author Ada Wong
- * @program chunjun
- * @create 2021/06/21
- */
 public class MongodbSinkFactory extends SinkFactory {
 
-    private final MongodbDataSyncConf mongodbDataSyncConf;
+    private final MongodbDataSyncConfig mongodbDataSyncConfig;
 
-    public MongodbSinkFactory(SyncConf syncConf) {
-        super(syncConf);
+    public MongodbSinkFactory(SyncConfig syncConfig) {
+        super(syncConfig);
         Gson gson = new GsonBuilder().create();
         GsonUtil.setTypeAdapter(gson);
-        mongodbDataSyncConf =
+        mongodbDataSyncConfig =
                 gson.fromJson(
-                        gson.toJson(syncConf.getWriter().getParameter()),
-                        MongodbDataSyncConf.class);
+                        gson.toJson(syncConfig.getWriter().getParameter()),
+                        MongodbDataSyncConfig.class);
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return MongodbRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return MongodbRawTypeMapper::apply;
     }
 
     @Override
     public DataStreamSink<RowData> createSink(DataStream<RowData> dataSet) {
-        MongodbOutputFormatBuilder builder = new MongodbOutputFormatBuilder(mongodbDataSyncConf);
+        MongodbOutputFormatBuilder builder =
+                MongodbOutputFormatBuilder.newBuilder(mongodbDataSyncConfig);
         MongoConverterFactory mongoConverterFactory =
-                new MongoConverterFactory(mongodbDataSyncConf);
+                new MongoConverterFactory(mongodbDataSyncConfig);
         AbstractRowConverter converter;
         if (useAbstractBaseColumn) {
             converter = mongoConverterFactory.createColumnConverter();
@@ -70,7 +66,7 @@ public class MongodbSinkFactory extends SinkFactory {
             converter = mongoConverterFactory.createRowConverter();
         }
         builder.setRowConverter(converter, useAbstractBaseColumn);
-        builder.setConfig(mongodbDataSyncConf);
+        builder.setConfig(mongodbDataSyncConfig);
         return createOutput(dataSet, builder.finish());
     }
 }

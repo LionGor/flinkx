@@ -15,14 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.dtstack.chunjun.connector.kingbase.util;
 
-/**
- * @description:
- * @program chunjun
- * @author: lany
- * @create: 2021/05/17 10:47
- */
 public class KingbaseConstants {
 
     public static final String DRIVER = "com.kingbase8.Driver";
@@ -30,4 +25,6 @@ public class KingbaseConstants {
     public static final String URL_PREFIX = "jdbc:kingbase8:";
 
     public static final String IDENTIFIER = "kingbase-x";
+
+    public static final String DB_NAME = "kingbase";
 }

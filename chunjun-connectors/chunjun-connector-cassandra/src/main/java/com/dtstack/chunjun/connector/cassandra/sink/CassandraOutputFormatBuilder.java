@@ -18,28 +18,23 @@
 
 package com.dtstack.chunjun.connector.cassandra.sink;
 
-import com.dtstack.chunjun.connector.cassandra.conf.CassandraSinkConf;
+import com.dtstack.chunjun.connector.cassandra.config.CassandraSinkConfig;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormatBuilder;
 import com.dtstack.chunjun.throwable.NoRestartException;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * @author tiezhu
- * @since 2021/6/21 星期一
- */
-public class CassandraOutputFormatBuilder extends BaseRichOutputFormatBuilder {
-
-    private final CassandraOutputFormat format;
+public class CassandraOutputFormatBuilder
+        extends BaseRichOutputFormatBuilder<CassandraOutputFormat> {
 
     public CassandraOutputFormatBuilder() {
-        super.format = this.format = new CassandraOutputFormat();
+        super(new CassandraOutputFormat());
     }
 
-    public void setSinkConf(CassandraSinkConf config) {
+    public void setSinkConfig(CassandraSinkConfig config) {
         super.setConfig(config);
-        format.setSinkConf(config);
+        format.setSinkConfig(config);
     }
 
     public void setConverter(AbstractRowConverter rowConverter) {
@@ -48,7 +43,7 @@ public class CassandraOutputFormatBuilder extends BaseRichOutputFormatBuilder {
 
     @Override
     protected void checkFormat() {
-        CassandraSinkConf sinkConf = format.getSinkConf();
+        CassandraSinkConfig sinkConf = format.getSinkConfig();
 
         StringBuilder stringBuilder = new StringBuilder(256);
 

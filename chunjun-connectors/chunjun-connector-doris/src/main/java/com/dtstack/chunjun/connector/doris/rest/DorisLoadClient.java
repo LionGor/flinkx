@@ -1,28 +1,27 @@
 /*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *  * Licensed to the Apache Software Foundation (ASF) under one
- *  * or more contributor license agreements.  See the NOTICE file
- *  * distributed with this work for additional information
- *  * regarding copyright ownership.  The ASF licenses this file
- *  * to you under the Apache License, Version 2.0 (the
- *  * "License"); you may not use this file except in compliance
- *  * with the License.  You may obtain a copy of the License at
- *  *
- *  *     http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  * Unless required by applicable law or agreed to in writing, software
- *  * distributed under the License is distributed on an "AS IS" BASIS,
- *  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  * See the License for the specific language governing permissions and
- *  * limitations under the License.
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package com.dtstack.chunjun.connector.doris.rest;
 
-import com.dtstack.chunjun.conf.FieldConf;
+import com.dtstack.chunjun.config.FieldConfig;
 import com.dtstack.chunjun.connector.doris.DorisUtil;
-import com.dtstack.chunjun.connector.doris.options.DorisConf;
+import com.dtstack.chunjun.connector.doris.options.DorisConfig;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
 import com.dtstack.chunjun.element.ColumnRowData;
 import com.dtstack.chunjun.throwable.WriteRecordException;
@@ -31,9 +30,8 @@ import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.types.RowKind;
 
+import lombok.AllArgsConstructor;
 import org.apache.commons.collections.MapUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
@@ -46,19 +44,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/**
- * Company：www.dtstack.com.
- *
- * @author shitou
- * @date 2021/12/21
- */
+@AllArgsConstructor
 public class DorisLoadClient implements Serializable {
-    private static final long serialVersionUID = 1L;
-    private static final Logger LOG = LoggerFactory.getLogger(DorisLoadClient.class);
+
+    private static final long serialVersionUID = 9155539896112185387L;
 
     private final Set<String> metaHeader =
             Stream.of("schema", "table", "type", "opTime", "ts", "scn")
@@ -71,19 +63,8 @@ public class DorisLoadClient implements Serializable {
 
     private final DorisStreamLoad dorisStreamLoad;
     private final boolean nameMapped;
-    private final DorisConf conf;
+    private final DorisConfig config;
 
-    public DorisLoadClient(DorisStreamLoad dorisStreamLoad, DorisConf conf) {
-        this.dorisStreamLoad = dorisStreamLoad;
-        this.conf = conf;
-        this.nameMapped = conf.isNameMapped();
-    }
-    /**
-     * Each time a RowData is processed, a Carrier is obtained and then returned.
-     *
-     * @param value RowData
-     * @return Carrier
-     */
     public void process(RowData value, List<String> columns, AbstractRowConverter converter)
             throws Exception {
         String schema;
@@ -95,19 +76,18 @@ public class DorisLoadClient implements Serializable {
             List<String> columnsFromValue = new LinkedList<>();
             Map<String, String> identityMap = new HashMap<>(2);
             wrap((ColumnRowData) value, columnsFromValue, insertV, deleteV, identityMap);
-            schema = MapUtils.getString(identityMap, KEY_SCHEMA, conf.getDatabase());
-            table = MapUtils.getString(identityMap, KEY_TABLE, conf.getTable());
+            schema = MapUtils.getString(identityMap, KEY_SCHEMA, config.getDatabase());
+            table = MapUtils.getString(identityMap, KEY_TABLE, config.getTable());
             Carrier carrier = initCarrier(columnsFromValue, insertV, deleteV, schema, table);
             flush(carrier);
         }
 
         if (value instanceof GenericRowData) {
-            schema = conf.getDatabase();
-            table = conf.getTable();
-            StringJoiner joiner = new StringJoiner(",");
+            schema = config.getDatabase();
+            table = config.getTable();
+            String[] joiner = new String[columns.size()];
             if (RowKind.INSERT.equals(value.getRowKind())) {
-                Object toExternal = converter.toExternal(value, joiner);
-                String[] split = String.valueOf(toExternal).split(",");
+                String[] split = (String[]) converter.toExternal(value, joiner);
                 insertV.addAll(Arrays.asList(split));
             }
             Carrier carrier = initCarrier(columns, insertV, deleteV, schema, table);
@@ -160,8 +140,8 @@ public class DorisLoadClient implements Serializable {
         Map<String, String> identityMap = new HashMap<>(2);
         List<String> columns = new LinkedList<>();
         wrap((ColumnRowData) value, columns, insertV, deleteV, identityMap);
-        String schema = MapUtils.getString(identityMap, KEY_SCHEMA, conf.getDatabase());
-        String table = MapUtils.getString(identityMap, KEY_TABLE, conf.getTable());
+        String schema = MapUtils.getString(identityMap, KEY_SCHEMA, config.getDatabase());
+        String table = MapUtils.getString(identityMap, KEY_TABLE, config.getTable());
         String key = schema + KEY_POINT + table;
         if (carrierMap.containsKey(key)) {
             Carrier carrier = carrierMap.get(key);
@@ -185,12 +165,11 @@ public class DorisLoadClient implements Serializable {
             List<String> columns,
             AbstractRowConverter converter)
             throws Exception {
-        String schema = conf.getDatabase();
-        String table = conf.getTable();
-        StringJoiner joiner = new StringJoiner(",");
+        String schema = config.getDatabase();
+        String table = config.getTable();
+        String[] joiner = new String[columns.size()];
         if (RowKind.INSERT.equals(value.getRowKind())) {
-            Object toExternal = converter.toExternal(value, joiner);
-            String[] split = String.valueOf(toExternal).split(",");
+            String[] split = (String[]) converter.toExternal(value, joiner);
             insertV.addAll(Arrays.asList(split));
         }
         String key = schema + KEY_POINT + table;
@@ -219,8 +198,8 @@ public class DorisLoadClient implements Serializable {
                     dorisStreamLoad::load,
                     dorisStreamLoad::replaceBackend,
                     carrier,
-                    conf.getMaxRetries(),
-                    conf.getWaitRetryMills());
+                    config.getMaxRetries(),
+                    config.getWaitRetryMills());
         } catch (Exception e) {
             String errorMessage = "write record failed.";
             throw new WriteRecordException(errorMessage, e, -1, carrier.toString());
@@ -382,19 +361,19 @@ public class DorisLoadClient implements Serializable {
         if (nameMapped) {
             wrapColumnsFromRowData(value, columns, insertV, deleteV, identityMap, delete);
         } else {
-            columns.addAll(getColumnName(conf.getColumn()));
+            columns.addAll(getColumnName(config.getColumn()));
             if (columns.isEmpty()) {
                 // neither nameMapping nor column are set.
                 wrapColumnsFromRowData(value, columns, insertV, deleteV, identityMap, delete);
             } else {
                 wrapValuesFromRowData(value, columns, insertV, deleteV, delete);
-                identityMap.put(KEY_SCHEMA, conf.getDatabase());
-                identityMap.put(KEY_TABLE, conf.getTable());
+                identityMap.put(KEY_SCHEMA, config.getDatabase());
+                identityMap.put(KEY_TABLE, config.getTable());
             }
         }
     }
 
-    private List<String> getColumnName(List<FieldConf> fields) {
+    private List<String> getColumnName(List<FieldConfig> fields) {
         List<String> columns = new LinkedList<>();
         if (fields != null) {
             fields.forEach(column -> columns.add(column.getName()));

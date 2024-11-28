@@ -18,26 +18,23 @@
 
 package com.dtstack.chunjun.connector.hbase;
 
-/**
- * @author jiangbo
- * @date 2019/7/25
- */
-public class ConstantFunction implements IFunction {
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.io.Serializable;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Setter
+public class ConstantFunction implements IFunction, Serializable {
+
+    private static final long serialVersionUID = -8896244338657942805L;
 
     private Object value;
-
-    public ConstantFunction() {}
-
-    public ConstantFunction(Object value) {
-        this.value = value;
-    }
 
     @Override
     public String evaluate(Object val) {
         return String.valueOf(value);
-    }
-
-    public void setValue(Object value) {
-        this.value = value;
     }
 }

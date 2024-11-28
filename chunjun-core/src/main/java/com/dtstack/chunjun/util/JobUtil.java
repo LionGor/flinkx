@@ -18,13 +18,12 @@
 
 package com.dtstack.chunjun.util;
 
-import com.dtstack.chunjun.constants.ConstantValue;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.type.TypeReference;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 public class JobUtil {
 
@@ -32,17 +31,15 @@ public class JobUtil {
         throw new IllegalAccessException(getClass().getName() + " can not be instantiated");
     }
 
-    public static String replaceJobParameter(String p, String job) {
-        if (StringUtils.isNotBlank(p)) {
-            HashMap<String, String> parameters = CommandTransform(p);
-            for (Map.Entry<String, String> entry : parameters.entrySet()) {
-                job = job.replaceAll(Pattern.quote(entry.getKey()), entry.getValue());
-            }
+    public static String replaceJobParameter(String pj, String job) {
+        if (StringUtils.isNotBlank(pj)) {
+            Map<String, String> parameters = commandJsonTransform(pj);
+            return jsonValueReplace(job, parameters);
         }
         return job;
     }
 
-    public static String JsonValueReplace(String json, HashMap<String, String> parameter) {
+    public static String jsonValueReplace(String json, Map<String, String> parameter) {
         for (String item : parameter.keySet()) {
             if (json.contains("${" + item + "}")) {
                 json = json.replace("${" + item + "}", parameter.get(item));
@@ -51,14 +48,7 @@ public class JobUtil {
         return json;
     }
 
-    /** 将命令行中的修改命令转化为HashMap保存 */
-    public static HashMap<String, String> CommandTransform(String command) {
-        HashMap<String, String> parameter = new HashMap<>();
-        String[] split = StringUtils.split(command, ConstantValue.COMMA_SYMBOL);
-        for (String item : split) {
-            String[] temp = item.split(ConstantValue.EQUAL_SYMBOL);
-            parameter.put(temp[0].trim(), temp[1].trim());
-        }
-        return parameter;
+    public static HashMap<String, String> commandJsonTransform(String command) {
+        return JsonUtil.toObject(command, new TypeReference<HashMap<String, String>>() {});
     }
 }

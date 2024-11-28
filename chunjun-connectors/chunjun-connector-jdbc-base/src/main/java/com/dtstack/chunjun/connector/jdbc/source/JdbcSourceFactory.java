@@ -18,16 +18,21 @@
 
 package com.dtstack.chunjun.connector.jdbc.source;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.connector.jdbc.adapter.ConnectionAdapter;
-import com.dtstack.chunjun.connector.jdbc.conf.ConnectionConf;
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcConf;
+import com.dtstack.chunjun.connector.jdbc.config.ConnectionConfig;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
+import com.dtstack.chunjun.connector.jdbc.config.SourceConnectionConfig;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.exclusion.FieldNameExclusionStrategy;
 import com.dtstack.chunjun.connector.jdbc.util.JdbcUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.KeyUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.NumericTypeUtil;
+import com.dtstack.chunjun.constants.ConstantValue;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 import com.dtstack.chunjun.util.GsonUtil;
@@ -36,96 +41,107 @@ import com.dtstack.chunjun.util.TableUtil;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.types.logical.RowType;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
+import java.math.BigInteger;
+import java.sql.Connection;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
-/**
- * The Reader plugin for any database that can be connected via JDBC.
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
+/** The Reader plugin for any database that can be connected via JDBC. */
 public abstract class JdbcSourceFactory extends SourceFactory {
 
     private static final int DEFAULT_FETCH_SIZE = 1024;
     private static final int DEFAULT_QUERY_TIMEOUT = 300;
     private static final int DEFAULT_CONNECTION_TIMEOUT = 600;
-    protected JdbcConf jdbcConf;
+    protected JdbcConfig jdbcConfig;
     protected JdbcDialect jdbcDialect;
 
+    protected KeyUtil<?, BigInteger> incrementKeyUtil = new NumericTypeUtil();
+    protected KeyUtil<?, BigInteger> splitKeyUtil = new NumericTypeUtil();
+    protected KeyUtil<?, BigInteger> restoreKeyUtil = new NumericTypeUtil();
+    protected List<String> columnNameList;
+    protected List<TypeConfig> columnTypeList;
+
     public JdbcSourceFactory(
-            SyncConf syncConf, StreamExecutionEnvironment env, JdbcDialect jdbcDialect) {
-        super(syncConf, env);
+            SyncConfig syncConfig, StreamExecutionEnvironment env, JdbcDialect jdbcDialect) {
+        super(syncConfig, env);
         this.jdbcDialect = jdbcDialect;
         Gson gson =
                 new GsonBuilder()
                         .registerTypeAdapter(
-                                ConnectionConf.class, new ConnectionAdapter("SourceConnectionConf"))
+                                ConnectionConfig.class,
+                                new ConnectionAdapter(SourceConnectionConfig.class.getName()))
                         .addDeserializationExclusionStrategy(
                                 new FieldNameExclusionStrategy("column"))
                         .create();
         GsonUtil.setTypeAdapter(gson);
-        jdbcConf = gson.fromJson(gson.toJson(syncConf.getReader().getParameter()), getConfClass());
-        if (StringUtils.isBlank(jdbcConf.getIncreColumn())) jdbcConf.setPolling(false);
-        jdbcConf.setColumn(syncConf.getReader().getFieldList());
+        jdbcConfig =
+                gson.fromJson(gson.toJson(syncConfig.getReader().getParameter()), getConfClass());
+        if (StringUtils.isBlank(jdbcConfig.getIncreColumn())) jdbcConfig.setPolling(false);
+        jdbcConfig.setColumn(syncConfig.getReader().getFieldList());
 
-        Properties properties = syncConf.getWriter().getProperties("properties", null);
-        jdbcConf.setProperties(properties);
-        String name = syncConf.getRestore().getRestoreColumnName();
-        if (StringUtils.isNotBlank(name)) {
-            FieldConf fieldConf = FieldConf.getSameNameMetaColumn(jdbcConf.getColumn(), name);
-            if (fieldConf != null) {
-                jdbcConf.setRestoreColumn(name);
-                jdbcConf.setRestoreColumnIndex(fieldConf.getIndex());
-                jdbcConf.setRestoreColumnType(fieldConf.getType());
-            } else {
-                throw new IllegalArgumentException("unknown restore column name: " + name);
-            }
-        }
-        initIncrementConfig(jdbcConf);
-        setDefaultSplitStrategy(jdbcConf);
-        super.initCommonConf(jdbcConf);
-        if (StringUtils.isBlank(jdbcConf.getCustomSql())) {
+        Properties properties = syncConfig.getReader().getProperties("properties", null);
+        jdbcConfig.setProperties(properties);
+
+        setDefaultSplitStrategy(jdbcConfig);
+        super.initCommonConf(jdbcConfig);
+        if (StringUtils.isBlank(jdbcConfig.getCustomSql())) {
             rebuildJdbcConf();
         }
     }
 
-    protected Class<? extends JdbcConf> getConfClass() {
-        return JdbcConf.class;
+    protected Class<? extends JdbcConfig> getConfClass() {
+        return JdbcConfig.class;
     }
 
     @Override
     public DataStream<RowData> createSource() {
+        initColumnInfo();
+        initRestoreConfig();
+        initPollingConfig();
+        initSplitConfig();
+        initIncrementConfig();
         JdbcInputFormatBuilder builder = getBuilder();
 
-        int fetchSize = jdbcConf.getFetchSize();
-        jdbcConf.setFetchSize(fetchSize == 0 ? getDefaultFetchSize() : fetchSize);
+        int fetchSize = jdbcConfig.getFetchSize();
+        jdbcConfig.setFetchSize(fetchSize == 0 ? getDefaultFetchSize() : fetchSize);
 
-        int queryTimeOut = jdbcConf.getQueryTimeOut();
-        jdbcConf.setQueryTimeOut(queryTimeOut == 0 ? DEFAULT_QUERY_TIMEOUT : queryTimeOut);
+        int queryTimeOut = jdbcConfig.getQueryTimeOut();
+        jdbcConfig.setQueryTimeOut(queryTimeOut == 0 ? DEFAULT_QUERY_TIMEOUT : queryTimeOut);
 
-        int connectTimeOut = jdbcConf.getConnectTimeOut();
-        jdbcConf.setConnectTimeOut(
+        int connectTimeOut = jdbcConfig.getConnectTimeOut();
+        jdbcConfig.setConnectTimeOut(
                 connectTimeOut == 0 ? DEFAULT_CONNECTION_TIMEOUT : connectTimeOut);
 
-        builder.setJdbcConf(jdbcConf);
+        builder.setJdbcConf(jdbcConfig);
         builder.setJdbcDialect(jdbcDialect);
+        builder.setRestoreKeyUtil(splitKeyUtil);
+        builder.setIncrementKeyUtil(incrementKeyUtil);
+        builder.setSplitKeyUtil(splitKeyUtil);
 
-        AbstractRowConverter rowConverter = null;
+        builder.setColumnNameList(columnNameList);
+
+        AbstractRowConverter rowConverter;
         if (!useAbstractBaseColumn) {
-            checkConstant(jdbcConf);
-            final RowType rowType =
-                    TableUtil.createRowType(jdbcConf.getColumn(), getRawTypeConverter());
-            rowConverter = jdbcDialect.getRowConverter(rowType);
+            checkConstant(jdbcConfig);
+            rowConverter =
+                    jdbcDialect.getRowConverter(
+                            TableUtil.createRowType(jdbcConfig.getColumn(), getRawTypeMapper()));
+        } else {
+            rowConverter =
+                    jdbcDialect.getColumnConverter(
+                            TableUtil.createRowType(
+                                    columnNameList, columnTypeList, getRawTypeMapper()),
+                            jdbcConfig);
         }
         builder.setRowConverter(rowConverter, useAbstractBaseColumn);
 
@@ -142,48 +158,92 @@ public abstract class JdbcSourceFactory extends SourceFactory {
     }
 
     /** set default split strategy if splitStrategy is blank */
-    private void setDefaultSplitStrategy(JdbcConf jdbcConf) {
-        if (jdbcConf.getSplitStrategy() == null || jdbcConf.getSplitStrategy().equals("")) {
-            if (jdbcConf.isIncrement() && jdbcConf.getParallelism() > 1) {
-                jdbcConf.setSplitStrategy("mod");
+    private void setDefaultSplitStrategy(JdbcConfig jdbcConfig) {
+        if (jdbcConfig.getSplitStrategy() == null || jdbcConfig.getSplitStrategy().equals("")) {
+            if (jdbcConfig.isIncrement() && jdbcConfig.getParallelism() > 1) {
+                jdbcConfig.setSplitStrategy("mod");
             } else {
-                jdbcConf.setSplitStrategy("range");
+                jdbcConfig.setSplitStrategy("range");
             }
         }
     }
 
-    /**
-     * 初始化增量或间隔轮询任务配置
-     *
-     * @param jdbcConf jdbcConf
-     */
-    private void initIncrementConfig(JdbcConf jdbcConf) {
-        String increColumn = jdbcConf.getIncreColumn();
+    protected void initColumnInfo() {
+        Connection conn = getConn();
+        Pair<List<String>, List<TypeConfig>> tableMetaData = getTableMetaData(conn);
+        Pair<List<String>, List<TypeConfig>> selectedColumnInfo =
+                JdbcUtil.buildColumnWithMeta(jdbcConfig, tableMetaData, getConstantType());
+        JdbcUtil.closeDbResources(null, null, conn, false);
+        columnNameList = selectedColumnInfo.getLeft();
+        columnTypeList = selectedColumnInfo.getRight();
+        this.fieldList = jdbcConfig.getColumn();
+    }
+
+    protected Connection getConn() {
+        return JdbcUtil.getConnection(jdbcConfig, jdbcDialect);
+    }
+
+    protected Pair<List<String>, List<TypeConfig>> getTableMetaData(Connection dbConn) {
+        return jdbcDialect.getTableMetaData(dbConn, jdbcConfig);
+    }
+
+    protected String getConstantType() {
+        return "VARCHAR";
+    }
+
+    /** init restore info */
+    protected void initRestoreConfig() {
+        String name = syncConfig.getRestore().getRestoreColumnName();
+        if (StringUtils.isNotBlank(name)) {
+            FieldConfig fieldConfig =
+                    FieldConfig.getSameNameMetaColumn(jdbcConfig.getColumn(), name);
+            if (fieldConfig != null) {
+                jdbcConfig.setRestoreColumn(name);
+                jdbcConfig.setRestoreColumnIndex(fieldConfig.getIndex());
+                jdbcConfig.setRestoreColumnType(fieldConfig.getType().getType());
+                restoreKeyUtil =
+                        jdbcDialect.initKeyUtil(fieldConfig.getName(), fieldConfig.getType());
+            } else {
+                throw new IllegalArgumentException("unknown restore column name: " + name);
+            }
+        }
+    }
+
+    protected void initPollingConfig() {
+        // The Polling mode does not support range split now
+        if (jdbcConfig.isPolling() && jdbcConfig.getParallelism() > 1) {
+            jdbcConfig.setSplitStrategy("mod");
+        }
+    }
+
+    /** 初始化增量或间隔轮询任务配置 */
+    private void initIncrementConfig() {
+        String increColumn = jdbcConfig.getIncreColumn();
 
         // 增量字段不为空，表示任务为增量或间隔轮询任务
         if (StringUtils.isNotBlank(increColumn)) {
-            List<FieldConf> fieldConfList = jdbcConf.getColumn();
-            String type = null;
+            List<FieldConfig> fieldConfigList = jdbcConfig.getColumn();
+            TypeConfig type = null;
             String name = null;
             int index = -1;
 
             // 纯数字则表示增量字段在column中的顺序位置
-            if (NumberUtils.isNumber(increColumn)) {
+            if (NumberUtils.isCreatable(increColumn)) {
                 int idx = Integer.parseInt(increColumn);
-                if (idx > fieldConfList.size() - 1) {
+                if (idx > fieldConfigList.size() - 1) {
                     throw new ChunJunRuntimeException(
                             String.format(
                                     "config error : incrementColumn must less than column.size() when increColumn is number, column = %s, size = %s, increColumn = %s",
-                                    GsonUtil.GSON.toJson(fieldConfList),
-                                    fieldConfList.size(),
+                                    GsonUtil.GSON.toJson(fieldConfigList),
+                                    fieldConfigList.size(),
                                     increColumn));
                 }
-                FieldConf fieldColumn = fieldConfList.get(idx);
+                FieldConfig fieldColumn = fieldConfigList.get(idx);
                 type = fieldColumn.getType();
                 name = fieldColumn.getName();
                 index = fieldColumn.getIndex();
             } else {
-                for (FieldConf field : fieldConfList) {
+                for (FieldConfig field : fieldConfigList) {
                     if (Objects.equals(increColumn, field.getName())) {
                         type = field.getType();
                         name = field.getName();
@@ -196,17 +256,46 @@ public abstract class JdbcSourceFactory extends SourceFactory {
                 throw new IllegalArgumentException(
                         String.format(
                                 "config error : increColumn's name or type is null, column = %s, increColumn = %s",
-                                GsonUtil.GSON.toJson(fieldConfList), increColumn));
+                                GsonUtil.GSON.toJson(fieldConfigList), increColumn));
             }
 
-            jdbcConf.setIncrement(true);
-            jdbcConf.setIncreColumn(name);
-            jdbcConf.setIncreColumnType(type);
-            jdbcConf.setIncreColumnIndex(index);
+            jdbcConfig.setIncrement(true);
+            jdbcConfig.setIncreColumn(name);
+            jdbcConfig.setIncreColumnType(type.getType());
+            jdbcConfig.setIncreColumnIndex(index);
 
-            jdbcConf.setRestoreColumn(name);
-            jdbcConf.setRestoreColumnType(type);
-            jdbcConf.setRestoreColumnIndex(index);
+            jdbcConfig.setRestoreColumn(name);
+            jdbcConfig.setRestoreColumnType(type.getType());
+            jdbcConfig.setRestoreColumnIndex(index);
+
+            incrementKeyUtil = jdbcDialect.initKeyUtil(name, type);
+            restoreKeyUtil = incrementKeyUtil;
+            initStartLocation();
+
+            if (StringUtils.isBlank(jdbcConfig.getSplitPk())) {
+                jdbcConfig.setSplitPk(name);
+                splitKeyUtil = incrementKeyUtil;
+            }
+        }
+    }
+
+    public void initSplitConfig() {
+        String splitPk = jdbcConfig.getSplitPk();
+        if (StringUtils.isNotBlank(splitPk)) {
+            jdbcConfig.getColumn().stream()
+                    .filter(field -> field.getName().equals(splitPk))
+                    .findFirst()
+                    .ifPresent(
+                            field -> {
+                                if (StringUtils.isNotBlank(field.getValue())) {
+                                    throw new ChunJunRuntimeException(
+                                            "Constant columns are not supported as splitPk");
+                                } else {
+                                    splitKeyUtil =
+                                            jdbcDialect.initKeyUtil(
+                                                    field.getName(), field.getType());
+                                }
+                            });
         }
     }
 
@@ -215,14 +304,25 @@ public abstract class JdbcSourceFactory extends SourceFactory {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return jdbcDialect.getRawTypeConverter();
     }
 
     protected void rebuildJdbcConf() {
         // table字段有可能是schema.table格式 需要转换为对应的schema 和 table 字段
-        if (StringUtils.isBlank(jdbcConf.getSchema())) {
-            JdbcUtil.resetSchemaAndTable(jdbcConf, "\\\"", "\\\"");
+        if (StringUtils.isBlank(jdbcConfig.getSchema())) {
+            JdbcUtil.resetSchemaAndTable(jdbcConfig, "\\\"", "\\\"");
         }
+    }
+
+    private void initStartLocation() {
+        String startLocation = jdbcConfig.getStartLocation();
+        if (StringUtils.isNotBlank(jdbcConfig.getStartLocation())) {
+            startLocation =
+                    Arrays.stream(startLocation.split(ConstantValue.COMMA_SYMBOL))
+                            .map(incrementKeyUtil::checkAndFormatLocationStr)
+                            .collect(Collectors.joining(ConstantValue.COMMA_SYMBOL));
+        }
+        jdbcConfig.setStartLocation(startLocation);
     }
 }

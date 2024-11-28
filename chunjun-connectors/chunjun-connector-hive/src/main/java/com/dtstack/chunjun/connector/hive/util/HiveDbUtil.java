@@ -21,6 +21,7 @@ import com.dtstack.chunjun.connector.hive.entity.ConnectionInfo;
 import com.dtstack.chunjun.constants.ConstantValue;
 import com.dtstack.chunjun.security.KerberosUtil;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
+import com.dtstack.chunjun.util.ClassUtil;
 import com.dtstack.chunjun.util.ExceptionUtil;
 import com.dtstack.chunjun.util.FileSystemUtil;
 import com.dtstack.chunjun.util.RetryUtil;
@@ -30,12 +31,10 @@ import org.apache.flink.api.common.cache.DistributedCache;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang.StringUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.security.PrivilegedAction;
 import java.sql.Connection;
@@ -46,16 +45,10 @@ import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.Callable;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Date: 2021/06/22 Company: www.dtstack.com
- *
- * @author tudou
- */
+@Slf4j
 public class HiveDbUtil {
     public static final String SQLSTATE_USERNAME_PWD_ERROR = "28000";
     public static final String SQLSTATE_CANNOT_ACQUIRE_CONNECT = "08004";
@@ -70,9 +63,7 @@ public class HiveDbUtil {
     public static final String PARAM_KEY = "param";
     public static final String HIVE_SERVER2_AUTHENTICATION_KERBEROS_KEYTAB_KEY =
             "hive.server2.authentication.kerberos.keytab";
-    private static final Logger LOG = LoggerFactory.getLogger(HiveDbUtil.class);
     private static final String ERROR_MSG_NO_DB = "NoSuchDatabaseException";
-    private static final ReentrantLock lock = new ReentrantLock();
     public static Pattern HIVE_JDBC_PATTERN =
             Pattern.compile(
                     "(?i)jdbc:hive2://(?<host>[^:]+):(?<port>\\d+)/(?<db>[^;]+)(?<param>[\\?;#].*)*");
@@ -80,9 +71,12 @@ public class HiveDbUtil {
     private HiveDbUtil() {}
 
     public static Connection getConnection(
-            ConnectionInfo connectionInfo, DistributedCache distributedCache) {
+            ConnectionInfo connectionInfo,
+            DistributedCache distributedCache,
+            String jobId,
+            String taskNumber) {
         if (openKerberos(connectionInfo.getJdbcUrl())) {
-            return getConnectionWithKerberos(connectionInfo, distributedCache);
+            return getConnectionWithKerberos(connectionInfo, distributedCache, jobId, taskNumber);
         } else {
             return getConnectionWithRetry(connectionInfo);
         }
@@ -91,15 +85,7 @@ public class HiveDbUtil {
     private static Connection getConnectionWithRetry(ConnectionInfo connectionInfo) {
         try {
             return RetryUtil.executeWithRetry(
-                    new Callable<Connection>() {
-                        @Override
-                        public Connection call() throws Exception {
-                            return HiveDbUtil.connect(connectionInfo);
-                        }
-                    },
-                    1,
-                    1000L,
-                    false);
+                    () -> HiveDbUtil.connect(connectionInfo), 1, 1000L, false);
         } catch (Exception e1) {
             throw new RuntimeException(
                     String.format(
@@ -109,21 +95,30 @@ public class HiveDbUtil {
     }
 
     private static Connection getConnectionWithKerberos(
-            ConnectionInfo connectionInfo, DistributedCache distributedCache) {
-        if (connectionInfo.getHiveConf() == null || connectionInfo.getHiveConf().isEmpty()) {
+            ConnectionInfo connectionInfo,
+            DistributedCache distributedCache,
+            String jobId,
+            String taskNumber) {
+        if (connectionInfo.getHiveConfig() == null || connectionInfo.getHiveConfig().isEmpty()) {
             throw new IllegalArgumentException("hiveConf can not be null or empty");
         }
 
-        String keytabFileName = KerberosUtil.getPrincipalFileName(connectionInfo.getHiveConf());
+        String keytabFileName = KerberosUtil.getPrincipalFileName(connectionInfo.getHiveConfig());
 
         keytabFileName =
                 KerberosUtil.loadFile(
-                        connectionInfo.getHiveConf(), keytabFileName, distributedCache);
-        String principal = KerberosUtil.getPrincipal(connectionInfo.getHiveConf(), keytabFileName);
-        KerberosUtil.loadKrb5Conf(connectionInfo.getHiveConf(), distributedCache);
+                        connectionInfo.getHiveConfig(),
+                        keytabFileName,
+                        distributedCache,
+                        jobId,
+                        taskNumber);
+        String principal =
+                KerberosUtil.getPrincipal(connectionInfo.getHiveConfig(), keytabFileName);
+        KerberosUtil.loadKrb5Conf(
+                connectionInfo.getHiveConfig(), distributedCache, jobId, taskNumber);
         KerberosUtil.refreshConfig();
 
-        Configuration conf = FileSystemUtil.getConfiguration(connectionInfo.getHiveConf(), null);
+        Configuration conf = FileSystemUtil.getConfiguration(connectionInfo.getHiveConfig(), null);
 
         UserGroupInformation ugi;
         try {
@@ -132,14 +127,9 @@ public class HiveDbUtil {
             throw new RuntimeException("Login kerberos error:", e);
         }
 
-        LOG.info("current ugi:{}", ugi);
+        log.info("current ugi:{}", ugi);
         return ugi.doAs(
-                new PrivilegedAction<Connection>() {
-                    @Override
-                    public Connection run() {
-                        return getConnectionWithRetry(connectionInfo);
-                    }
-                });
+                (PrivilegedAction<Connection>) () -> getConnectionWithRetry(connectionInfo));
     }
 
     private static boolean openKerberos(final String jdbcUrl) {
@@ -160,28 +150,15 @@ public class HiveDbUtil {
         return false;
     }
 
-    private static String getKeytab(Map<String, Object> hiveConf) {
-        String keytab = MapUtils.getString(hiveConf, KerberosUtil.KEY_PRINCIPAL_FILE);
-        if (StringUtils.isEmpty(keytab)) {
-            keytab = MapUtils.getString(hiveConf, HIVE_SERVER2_AUTHENTICATION_KERBEROS_KEYTAB_KEY);
-        }
-
-        if (StringUtils.isNotEmpty(keytab)) {
-            return keytab;
-        }
-
-        throw new IllegalArgumentException("can not find keytab from hiveConf");
-    }
-
     public static Connection connect(ConnectionInfo connectionInfo) {
         String addr = parseIpAndPort(connectionInfo.getJdbcUrl());
-        String[] addrs = addr.split(ConstantValue.COLON_SYMBOL);
+        String[] adders = addr.split(ConstantValue.COLON_SYMBOL);
         boolean check;
-        String ip = addrs[0].trim();
-        if (addrs.length == 1) {
+        String ip = adders[0].trim();
+        if (adders.length == 1) {
             check = TelnetUtil.ping(ip);
         } else {
-            String port = addrs[1].trim();
+            String port = adders[1].trim();
             check = TelnetUtil.telnet(ip, Integer.parseInt(port));
         }
 
@@ -205,11 +182,11 @@ public class HiveDbUtil {
     }
 
     private static Connection connect(ConnectionInfo connectionInfo, Properties prop) {
-        lock.lock();
         try {
-            Class.forName("org.apache.hive.jdbc.HiveDriver");
-            DriverManager.setLoginTimeout(connectionInfo.getTimeout());
-            return getHiveConnection(connectionInfo.getJdbcUrl(), prop);
+            ClassUtil.forName(
+                    "org.apache.hive.jdbc.HiveDriver",
+                    Thread.currentThread().getContextClassLoader());
+            return getHiveConnection(connectionInfo, prop);
         } catch (SQLException e) {
             if (SQLSTATE_USERNAME_PWD_ERROR.equals(e.getSQLState())) {
                 throw new RuntimeException("user name or password wrong.");
@@ -228,20 +205,12 @@ public class HiveDbUtil {
                             + connectionInfo.getJdbcUrl()
                             + " error message ："
                             + ExceptionUtil.getErrorMessage(e1));
-        } finally {
-            lock.unlock();
         }
     }
 
-    /**
-     * 获取hive连接
-     *
-     * @param url
-     * @param prop
-     * @return
-     * @throws Exception
-     */
-    private static Connection getHiveConnection(String url, Properties prop) throws Exception {
+    private static Connection getHiveConnection(ConnectionInfo connectionInfo, Properties prop)
+            throws Exception {
+        String url = connectionInfo.getJdbcUrl();
         Matcher matcher = HIVE_JDBC_PATTERN.matcher(url);
         String db = null;
         String host = null;
@@ -257,6 +226,7 @@ public class HiveDbUtil {
         if (StringUtils.isNotEmpty(host) && StringUtils.isNotEmpty(db)) {
             param = param == null ? "" : param;
             url = String.format("jdbc:hive2://%s:%s/%s", host, port, param);
+            DriverManager.setLoginTimeout(connectionInfo.getTimeout());
             Connection connection = DriverManager.getConnection(url, prop);
             if (StringUtils.isNotEmpty(db)) {
                 try (Statement statement = connection.createStatement()) {
@@ -352,7 +322,7 @@ public class HiveDbUtil {
                 conn.close();
             }
         } catch (Throwable t) {
-            LOG.warn("", t);
+            log.warn("", t);
         }
     }
 }

@@ -18,18 +18,17 @@
 
 package com.dtstack.chunjun.connector.doris.source;
 
-import com.dtstack.chunjun.connector.doris.options.DorisConf;
-import com.dtstack.chunjun.connector.mysql.source.MysqlInputFormat;
+import com.dtstack.chunjun.connector.doris.options.DorisConfig;
+import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormat;
 
-public class DorisInputFormat extends MysqlInputFormat {
+import lombok.Getter;
+import lombok.Setter;
 
-    private DorisConf dorisConf;
+@Getter
+@Setter
+public class DorisInputFormat extends JdbcInputFormat {
 
-    public void setDorisConf(DorisConf dorisConf) {
-        this.dorisConf = dorisConf;
-    }
+    private static final long serialVersionUID = 6165564668027900445L;
 
-    public DorisConf getDorisConf() {
-        return dorisConf;
-    }
+    private DorisConfig dorisConfig;
 }

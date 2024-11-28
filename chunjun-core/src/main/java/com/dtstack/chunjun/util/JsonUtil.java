@@ -35,11 +35,6 @@ import java.util.Properties;
 
 import static java.util.stream.Collectors.toMap;
 
-/**
- * Date: 2021/03/29 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class JsonUtil {
 
     public static final ObjectMapper objectMapper =
@@ -114,7 +109,10 @@ public class JsonUtil {
         try {
             Map<String, Object> result =
                     objectMapper.readValue(objectMapper.writeValueAsString(obj), HashMap.class);
-            MapUtil.replaceAllElement(result, Lists.newArrayList("pwd", "password"), "******");
+            MapUtil.replaceAllElement(
+                    result,
+                    Lists.newArrayList("pwd", "password", "druid.password", "secretKey"),
+                    "******");
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
         } catch (Exception e) {
             throw new RuntimeException("error parse [" + obj + "] to json", e);

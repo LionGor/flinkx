@@ -29,7 +29,6 @@ import org.apache.flink.core.memory.DataOutputView;
 
 import java.io.IOException;
 
-/** @author liuliu 2022/5/12 */
 public class NullColumnSerializer extends TypeSerializerSingleton<AbstractBaseColumn> {
 
     private static final long serialVersionUID = 1L;
@@ -78,7 +77,8 @@ public class NullColumnSerializer extends TypeSerializerSingleton<AbstractBaseCo
     @Override
     public AbstractBaseColumn deserialize(AbstractBaseColumn reuse, DataInputView source)
             throws IOException {
-        return deserialize(source);
+        source.readByte();
+        return EMPTY;
     }
 
     @Override

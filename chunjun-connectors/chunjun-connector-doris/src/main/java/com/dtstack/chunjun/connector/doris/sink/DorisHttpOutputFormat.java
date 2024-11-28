@@ -18,15 +18,16 @@
 
 package com.dtstack.chunjun.connector.doris.sink;
 
-import com.dtstack.chunjun.connector.doris.options.DorisConf;
+import com.dtstack.chunjun.connector.doris.options.DorisConfig;
 import com.dtstack.chunjun.connector.doris.rest.Carrier;
 import com.dtstack.chunjun.connector.doris.rest.DorisLoadClient;
 import com.dtstack.chunjun.connector.doris.rest.DorisStreamLoad;
-import com.dtstack.chunjun.connector.doris.rest.FeRestService;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormat;
 import com.dtstack.chunjun.throwable.WriteRecordException;
 
 import org.apache.flink.table.data.RowData;
+
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -35,21 +36,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * use DorisStreamLoad to write data into doris
- *
- * @author tiezhu@dtstack
- * @date 2021/9/16 星期四
- */
+/** use DorisStreamLoad to write data into doris */
+@Slf4j
 public class DorisHttpOutputFormat extends BaseRichOutputFormat {
-    private DorisConf options;
+    private static final long serialVersionUID = 992571748616683426L;
+    private DorisConfig options;
     private DorisLoadClient client;
     /** cache carriers * */
     private final Map<String, Carrier> carrierMap = new HashMap<>();
 
     private List<String> columns;
 
-    public void setOptions(DorisConf options) {
+    public void setOptions(DorisConfig options) {
         this.options = options;
     }
 
@@ -57,31 +55,21 @@ public class DorisHttpOutputFormat extends BaseRichOutputFormat {
         this.columns = columns;
     }
 
-    private String getBackend() throws IOException {
-        try {
-            // get be url from fe
-            return FeRestService.randomBackend(options);
-        } catch (IOException e) {
-            LOG.error("get backends info fail");
-            throw new IOException(e);
-        }
-    }
-
     @Override
     public void open(int taskNumber, int numTasks) throws IOException {
         DorisStreamLoad dorisStreamLoad = new DorisStreamLoad(options);
         dorisStreamLoad.replaceBackend();
-        client = new DorisLoadClient(dorisStreamLoad, options);
+        client = new DorisLoadClient(dorisStreamLoad, options.isNameMapped(), options);
         super.open(taskNumber, numTasks);
     }
 
     @Override
-    protected void openInternal(int taskNumber, int numTasks) throws IOException {
-        LOG.info("task number : {} , number task : {}", taskNumber, numTasks);
+    protected void openInternal(int taskNumber, int numTasks) {
+        log.info("task number : {} , number task : {}", taskNumber, numTasks);
     }
 
     @Override
-    protected void closeInternal() throws IOException {}
+    protected void closeInternal() {}
 
     @Override
     protected void writeSingleRecordInternal(RowData rowData) throws WriteRecordException {

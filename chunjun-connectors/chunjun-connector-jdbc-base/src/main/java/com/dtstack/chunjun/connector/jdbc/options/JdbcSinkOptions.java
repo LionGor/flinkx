@@ -21,11 +21,6 @@ package com.dtstack.chunjun.connector.jdbc.options;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
-/**
- * @author chuixue
- * @create 2021-04-10 16:19
- * @description
- */
 public class JdbcSinkOptions {
 
     public static final ConfigOption<Boolean> SINK_ALL_REPLACE =
@@ -45,4 +40,16 @@ public class JdbcSinkOptions {
                     .stringType()
                     .defaultValue("at-least-once")
                     .withDescription("sink.semantic.");
+
+    public static final ConfigOption<String> SINK_PRE_SQL =
+            ConfigOptions.key("sink.pre-sql")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("sink.pre-sql");
+
+    public static final ConfigOption<String> SINK_POST_SQL =
+            ConfigOptions.key("sink.post-sql")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("sink.post-sql");
 }

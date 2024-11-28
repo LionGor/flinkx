@@ -20,16 +20,10 @@ package com.dtstack.chunjun.connector.http.outputformat;
 import com.dtstack.chunjun.connector.http.common.HttpWriterConfig;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormatBuilder;
 
-/**
- * @author : tiezhu
- * @date : 2020/3/12
- */
-public class HttpOutputFormatBuilder extends BaseRichOutputFormatBuilder {
-
-    private HttpOutputFormat format;
+public class HttpOutputFormatBuilder extends BaseRichOutputFormatBuilder<HttpOutputFormat> {
 
     public HttpOutputFormatBuilder() {
-        super.format = format = new HttpOutputFormat();
+        super(new HttpOutputFormat());
     }
 
     public void setConfig(HttpWriterConfig httpWriterConfig) {

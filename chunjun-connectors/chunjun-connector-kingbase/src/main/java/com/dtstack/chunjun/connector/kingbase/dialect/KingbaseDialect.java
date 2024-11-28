@@ -17,33 +17,15 @@
  */
 package com.dtstack.chunjun.connector.kingbase.dialect;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
-import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
-import com.dtstack.chunjun.connector.kingbase.converter.KingbaseColumnConverter;
-import com.dtstack.chunjun.connector.kingbase.converter.KingbaseRawTypeConverter;
-import com.dtstack.chunjun.connector.kingbase.converter.KingbaseRowConverter;
+import com.dtstack.chunjun.connector.kingbase.converter.KingbaseRawTypeMapper;
 import com.dtstack.chunjun.connector.kingbase.util.KingbaseConstants;
-import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
-import com.dtstack.chunjun.enums.EDatabaseType;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
-import org.apache.flink.table.types.logical.LogicalType;
-import org.apache.flink.table.types.logical.RowType;
-
-import io.vertx.core.json.JsonArray;
-
-import java.sql.ResultSet;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * @description:
- * @program chunjun
- * @author: lany
- * @create: 2021/04/26 22:01
- */
 public class KingbaseDialect implements JdbcDialect {
 
     @Override
@@ -53,7 +35,7 @@ public class KingbaseDialect implements JdbcDialect {
 
     @Override
     public String dialectName() {
-        return EDatabaseType.KingBase.name();
+        return KingbaseConstants.DB_NAME;
     }
 
     @Override
@@ -62,25 +44,8 @@ public class KingbaseDialect implements JdbcDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return KingbaseRawTypeConverter::apply;
-    }
-
-    @Override
-    public String quoteIdentifier(String identifier) {
-        return "" + identifier + "";
-    }
-
-    @Override
-    public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getRowConverter(RowType rowType) {
-        return new KingbaseRowConverter(rowType);
-    }
-
-    @Override
-    public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getColumnConverter(RowType rowType, ChunJunCommonConf commonConf) {
-        return new KingbaseColumnConverter(rowType, commonConf);
+    public RawTypeMapper getRawTypeConverter() {
+        return KingbaseRawTypeMapper::apply;
     }
 
     @Override
@@ -153,7 +118,7 @@ public class KingbaseDialect implements JdbcDialect {
                 Arrays.stream(fieldNames).map(f -> ":" + f).collect(Collectors.joining(", "));
         return "INSERT INTO "
                 + buildTableInfoWithSchema(schema, tableName)
-                + " t1 "
+                + " as t1 "
                 + "("
                 + columns
                 + ")"

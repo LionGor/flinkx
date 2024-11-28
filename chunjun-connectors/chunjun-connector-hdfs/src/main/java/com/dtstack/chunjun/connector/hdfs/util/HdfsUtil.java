@@ -17,16 +17,17 @@
  */
 package com.dtstack.chunjun.connector.hdfs.util;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsOrcColumnConverter;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsOrcRowConverter;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsParquetColumnConverter;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsParquetRowConverter;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsTextColumnConverter;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsTextRowConverter;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.connector.hdfs.config.HdfsConfig;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsOrcSqlConverter;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsOrcSyncConverter;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsParquetSqlConverter;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsParquetSyncConverter;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsTextSqlConverter;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsTextSyncConverter;
 import com.dtstack.chunjun.connector.hdfs.enums.FileType;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.enums.ColumnType;
 import com.dtstack.chunjun.util.TableUtil;
 
@@ -61,11 +62,6 @@ import java.util.List;
 import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.MILLIS_IN_DAY;
 import static org.apache.flink.formats.parquet.vector.reader.TimestampColumnReader.NANOS_PER_SECOND;
 
-/**
- * Date: 2021/06/09 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class HdfsUtil {
     public static final String NULL_VALUE = "\\N";
 
@@ -158,13 +154,13 @@ public class HdfsUtil {
             case TIMESTAMP:
                 objectInspector =
                         ObjectInspectorFactory.getReflectionObjectInspector(
-                                java.sql.Timestamp.class,
+                                org.apache.hadoop.hive.common.type.Timestamp.class,
                                 ObjectInspectorFactory.ObjectInspectorOptions.JAVA);
                 break;
             case DATE:
                 objectInspector =
                         ObjectInspectorFactory.getReflectionObjectInspector(
-                                java.sql.Date.class,
+                                org.apache.hadoop.hive.common.type.Date.class,
                                 ObjectInspectorFactory.ObjectInspectorOptions.JAVA);
                 break;
             case STRING:
@@ -318,43 +314,35 @@ public class HdfsUtil {
         return str.toString();
     }
 
-    /**
-     * createRowConverter
-     *
-     * @param useAbstractBaseColumn
-     * @param fileType
-     * @param fieldConfList
-     * @param converter
-     * @return
-     */
     public static AbstractRowConverter createRowConverter(
             boolean useAbstractBaseColumn,
             String fileType,
-            List<FieldConf> fieldConfList,
-            RawTypeConverter converter) {
+            List<FieldConfig> fieldConfList,
+            RawTypeMapper converter,
+            HdfsConfig hdfsConfig) {
         AbstractRowConverter rowConverter;
         if (useAbstractBaseColumn) {
             switch (FileType.getByName(fileType)) {
                 case ORC:
-                    rowConverter = new HdfsOrcColumnConverter(fieldConfList);
+                    rowConverter = new HdfsOrcSyncConverter(fieldConfList, hdfsConfig);
                     break;
                 case PARQUET:
-                    rowConverter = new HdfsParquetColumnConverter(fieldConfList);
+                    rowConverter = new HdfsParquetSyncConverter(fieldConfList, hdfsConfig);
                     break;
                 default:
-                    rowConverter = new HdfsTextColumnConverter(fieldConfList);
+                    rowConverter = new HdfsTextSyncConverter(fieldConfList, hdfsConfig);
             }
         } else {
             RowType rowType = TableUtil.createRowType(fieldConfList, converter);
             switch (FileType.getByName(fileType)) {
                 case ORC:
-                    rowConverter = new HdfsOrcRowConverter(rowType);
+                    rowConverter = new HdfsOrcSqlConverter(rowType);
                     break;
                 case PARQUET:
-                    rowConverter = new HdfsParquetRowConverter(rowType);
+                    rowConverter = new HdfsParquetSqlConverter(rowType);
                     break;
                 default:
-                    rowConverter = new HdfsTextRowConverter(rowType);
+                    rowConverter = new HdfsTextSqlConverter(rowType);
             }
         }
         return rowConverter;

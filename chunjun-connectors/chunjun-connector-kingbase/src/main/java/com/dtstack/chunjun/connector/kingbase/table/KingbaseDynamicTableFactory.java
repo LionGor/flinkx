@@ -15,24 +15,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.dtstack.chunjun.connector.kingbase.table;
 
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
-import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
-import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.table.JdbcDynamicTableFactory;
 import com.dtstack.chunjun.connector.kingbase.dialect.KingbaseDialect;
-import com.dtstack.chunjun.connector.kingbase.sink.KingbaseOutputFormat;
-import com.dtstack.chunjun.connector.kingbase.source.KingbaseInputFormat;
 
 import static com.dtstack.chunjun.connector.kingbase.util.KingbaseConstants.IDENTIFIER;
 
-/**
- * @description:
- * @program chunjun
- * @author: lany
- * @create: 2021/05/13 20:10
- */
 public class KingbaseDynamicTableFactory extends JdbcDynamicTableFactory {
 
     @Override
@@ -43,15 +34,5 @@ public class KingbaseDynamicTableFactory extends JdbcDynamicTableFactory {
     @Override
     protected JdbcDialect getDialect() {
         return new KingbaseDialect();
-    }
-
-    @Override
-    protected JdbcInputFormatBuilder getInputFormatBuilder() {
-        return new JdbcInputFormatBuilder(new KingbaseInputFormat());
-    }
-
-    @Override
-    protected JdbcOutputFormatBuilder getOutputFormatBuilder() {
-        return new JdbcOutputFormatBuilder(new KingbaseOutputFormat());
     }
 }

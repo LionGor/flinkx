@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.dtstack.chunjun.util;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
@@ -10,17 +28,11 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import static com.dtstack.chunjun.util.StringUtil.escapeExprSpecialWord;
 
-/**
- * Reason: Date: 2019/8/9 Company: www.dtstack.com
- *
- * @author xuchao
- */
 public class MapUtil {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,8 +70,12 @@ public class MapUtil {
         return objectMapper.readValue(jsonStr, clazz);
     }
 
-    public static String writeValueAsString(Object obj) throws JsonProcessingException {
-        return objectMapper.writeValueAsString(obj);
+    public static String writeValueAsStringWithoutQuote(Object obj) throws JsonProcessingException {
+        return objectMapper.writeValueAsString(obj).replace("\"", "");
+    }
+
+    public static byte[] writeValueAsBytes(Object obj) throws JsonProcessingException {
+        return objectMapper.writeValueAsBytes(obj);
     }
 
     /**
@@ -151,12 +167,13 @@ public class MapUtil {
         return map.get(key);
     }
 
+    public static String writeValueAsString(Object obj) throws JsonProcessingException {
+        return objectMapper.writeValueAsString(obj);
+    }
+
     public static void replaceAllElement(
-            Map<String, Object> map, final List<String> keys, final Object value)
-            throws JsonProcessingException {
-        Iterator<Map.Entry<String, Object>> entries = map.entrySet().iterator();
-        while (entries.hasNext()) {
-            Map.Entry<String, Object> entry = entries.next();
+            Map<String, Object> map, final List<String> keys, final Object value) {
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
             if (entry.getValue() instanceof Map) {
                 replaceAllElement((Map<String, Object>) entry.getValue(), keys, value);
             }

@@ -17,25 +17,28 @@
  */
 package com.dtstack.chunjun.connector.jdbc.sink;
 
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcConf;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
+import com.dtstack.chunjun.enums.Semantic;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormatBuilder;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.flink.table.types.logical.RowType;
 
-/** @author sishu.yss @Company: www.dtstack.com */
-public class JdbcOutputFormatBuilder extends BaseRichOutputFormatBuilder {
+import org.apache.commons.lang3.StringUtils;
 
-    protected JdbcOutputFormat format;
+import java.util.List;
+
+public class JdbcOutputFormatBuilder extends BaseRichOutputFormatBuilder<JdbcOutputFormat> {
 
     public JdbcOutputFormatBuilder(JdbcOutputFormat format) {
-        super.format = this.format = format;
+        super(format);
     }
 
-    public void setJdbcConf(JdbcConf jdbcConf) {
-        super.setConfig(jdbcConf);
-        format.setJdbcConf(jdbcConf);
+    public void setJdbcConf(JdbcConfig jdbcConfig) {
+        super.setConfig(jdbcConfig);
+        format.setJdbcConf(jdbcConfig);
     }
 
     public void setJdbcDialect(JdbcDialect JdbcDialect) {
@@ -47,17 +50,40 @@ public class JdbcOutputFormatBuilder extends BaseRichOutputFormatBuilder {
         format.setRowConverter(rowConverter);
     }
 
+    public void setKeyRowType(RowType keyRowType) {
+        format.setKeyRowType(keyRowType);
+    }
+
+    public void setKeyRowConverter(AbstractRowConverter keyRowConverter) {
+        format.setKeyRowConverter(keyRowConverter);
+    }
+
+    public void setColumnNameList(List<String> columnNameList) {
+        format.setColumnNameList(columnNameList);
+    }
+
+    public void setColumnTypeList(List<TypeConfig> columnTypeList) {
+        format.setColumnTypeList(columnTypeList);
+    }
+
     @Override
     protected void checkFormat() {
-        JdbcConf jdbcConf = format.getJdbcConf();
+        JdbcConfig jdbcConfig = format.getJdbcConfig();
         StringBuilder sb = new StringBuilder(256);
-        if (StringUtils.isBlank(jdbcConf.getUsername())) {
+        if (StringUtils.isBlank(jdbcConfig.getUsername())) {
             sb.append("No username supplied;\n");
         }
 
-        if (StringUtils.isBlank(jdbcConf.getJdbcUrl())) {
+        if (StringUtils.isBlank(jdbcConfig.getJdbcUrl())) {
             sb.append("No jdbc url supplied;\n");
         }
+
+        if (Semantic.getByName(jdbcConfig.getSemantic()) == Semantic.EXACTLY_ONCE
+                && jdbcConfig.isAutoCommit()) {
+            sb.append(
+                    "Exactly-once semantics requires that the jdbc driver is not in auto-commit mode;\n");
+        }
+
         if (sb.length() > 0) {
             throw new IllegalArgumentException(sb.toString());
         }

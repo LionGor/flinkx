@@ -18,13 +18,13 @@
 
 package com.dtstack.chunjun.connector.stream.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.stream.conf.StreamConf;
-import com.dtstack.chunjun.connector.stream.converter.StreamColumnConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.stream.config.StreamConfig;
 import com.dtstack.chunjun.connector.stream.converter.StreamRawTypeConverter;
-import com.dtstack.chunjun.connector.stream.converter.StreamRowConverter;
+import com.dtstack.chunjun.connector.stream.converter.StreamSqlConverter;
+import com.dtstack.chunjun.connector.stream.converter.StreamSyncConverter;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.GsonUtil;
 import com.dtstack.chunjun.util.TableUtil;
@@ -34,35 +34,31 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
-/**
- * Date: 2021/04/07 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class StreamSourceFactory extends SourceFactory {
-    private final StreamConf streamConf;
+    private final StreamConfig streamConfig;
 
-    public StreamSourceFactory(SyncConf config, StreamExecutionEnvironment env) {
+    public StreamSourceFactory(SyncConfig config, StreamExecutionEnvironment env) {
         super(config, env);
-        streamConf =
+        streamConfig =
                 GsonUtil.GSON.fromJson(
-                        GsonUtil.GSON.toJson(config.getReader().getParameter()), StreamConf.class);
-        streamConf.setColumn(config.getReader().getFieldList());
-        super.initCommonConf(streamConf);
+                        GsonUtil.GSON.toJson(config.getReader().getParameter()),
+                        StreamConfig.class);
+        streamConfig.setColumn(config.getReader().getFieldList());
+        super.initCommonConf(streamConfig);
     }
 
     @Override
     public DataStream<RowData> createSource() {
         StreamInputFormatBuilder builder = new StreamInputFormatBuilder();
-        builder.setStreamConf(streamConf);
+        builder.setStreamConf(streamConfig);
         AbstractRowConverter rowConverter;
         if (useAbstractBaseColumn) {
-            rowConverter = new StreamColumnConverter(streamConf);
+            rowConverter = new StreamSyncConverter(streamConfig);
         } else {
-            checkConstant(streamConf);
+            checkConstant(streamConfig);
             final RowType rowType =
-                    TableUtil.createRowType(streamConf.getColumn(), getRawTypeConverter());
-            rowConverter = new StreamRowConverter(rowType);
+                    TableUtil.createRowType(streamConfig.getColumn(), getRawTypeMapper());
+            rowConverter = new StreamSqlConverter(rowType);
         }
         builder.setRowConverter(rowConverter, useAbstractBaseColumn);
 
@@ -70,7 +66,7 @@ public class StreamSourceFactory extends SourceFactory {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return StreamRawTypeConverter::apply;
     }
 }

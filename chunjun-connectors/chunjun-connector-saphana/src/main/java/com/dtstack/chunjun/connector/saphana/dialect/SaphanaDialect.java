@@ -18,14 +18,13 @@
 
 package com.dtstack.chunjun.connector.saphana.dialect;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
+import com.dtstack.chunjun.config.CommonConfig;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
-import com.dtstack.chunjun.connector.saphana.converter.SaphanaColumnConverter;
-import com.dtstack.chunjun.connector.saphana.converter.SaphanaRawTypeConverter;
+import com.dtstack.chunjun.connector.saphana.converter.SaphanaRawTypeMapper;
+import com.dtstack.chunjun.connector.saphana.converter.SaphanaSyncConverter;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
-import com.dtstack.chunjun.enums.EDatabaseType;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
@@ -39,16 +38,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * company www.dtstack.com
- *
- * @author jier
- */
 public class SaphanaDialect implements JdbcDialect {
+
+    private static final long serialVersionUID = 3485113286486596308L;
 
     @Override
     public String dialectName() {
-        return EDatabaseType.SapHana.name();
+        return "SapHana";
     }
 
     @Override
@@ -57,13 +53,18 @@ public class SaphanaDialect implements JdbcDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return SaphanaRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeConverter() {
+        return SaphanaRawTypeMapper::apply;
     }
 
     @Override
     public Optional<String> defaultDriverName() {
         return Optional.of("com.sap.db.jdbc.Driver");
+    }
+
+    @Override
+    public boolean supportUpsert() {
+        return true;
     }
 
     @Override
@@ -110,13 +111,13 @@ public class SaphanaDialect implements JdbcDialect {
 
     @Override
     public String quoteIdentifier(String identifier) {
-        return identifier;
+        return "\"" + identifier + "\"";
     }
 
     @Override
     public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getColumnConverter(RowType rowType, ChunJunCommonConf commonConf) {
-        return new SaphanaColumnConverter(rowType, commonConf);
+            getColumnConverter(RowType rowType, CommonConfig commonConfig) {
+        return new SaphanaSyncConverter(rowType, commonConfig);
     }
 
     @Override
@@ -135,11 +136,11 @@ public class SaphanaDialect implements JdbcDialect {
         return sb.toString();
     }
 
-    /** build sql part e.g: T1.`A` = T2.`A`, T1.`B` = T2.`B` */
+    /** build sql part e.g: T1.`A` = T2.`A` and T1.`B` = T2.`B` */
     private String buildEqualConditions(String[] uniqueKeyFields) {
         return Arrays.stream(uniqueKeyFields)
                 .map(col -> "T1." + quoteIdentifier(col) + " = T2." + quoteIdentifier(col))
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.joining(" and "));
     }
 
     /** build T1."A"=T2."A" or T1."A"=nvl(T2."A",T1."A") */

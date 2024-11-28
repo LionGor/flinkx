@@ -1,53 +1,67 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.alibaba.otter.canal.parse.inbound.mysql.ddl;
 
-import com.alibaba.fastsql.sql.SQLUtils;
-import com.alibaba.fastsql.sql.ast.SQLExpr;
-import com.alibaba.fastsql.sql.ast.SQLStatement;
-import com.alibaba.fastsql.sql.ast.expr.SQLIdentifierExpr;
-import com.alibaba.fastsql.sql.ast.expr.SQLPropertyExpr;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableAddConstraint;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableAddIndex;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableDropConstraint;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableDropIndex;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableDropKey;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableItem;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableRename;
-import com.alibaba.fastsql.sql.ast.statement.SQLAlterTableStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLConstraint;
-import com.alibaba.fastsql.sql.ast.statement.SQLCreateDatabaseStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLCreateIndexStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLCreateTableStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLCreateViewStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLDeleteStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLDropDatabaseStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLDropIndexStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLDropTableStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLDropViewStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLExprTableSource;
-import com.alibaba.fastsql.sql.ast.statement.SQLInsertStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLTableSource;
-import com.alibaba.fastsql.sql.ast.statement.SQLTruncateStatement;
-import com.alibaba.fastsql.sql.ast.statement.SQLUnique;
-import com.alibaba.fastsql.sql.ast.statement.SQLUpdateStatement;
-import com.alibaba.fastsql.sql.dialect.mysql.ast.statement.MySqlRenameTableStatement;
-import com.alibaba.fastsql.sql.dialect.mysql.ast.statement.MySqlRenameTableStatement.Item;
-import com.alibaba.fastsql.sql.parser.ParserException;
-import com.alibaba.fastsql.util.JdbcConstants;
+import com.alibaba.druid.sql.SQLUtils;
+import com.alibaba.druid.sql.ast.SQLExpr;
+import com.alibaba.druid.sql.ast.SQLStatement;
+import com.alibaba.druid.sql.ast.expr.SQLIdentifierExpr;
+import com.alibaba.druid.sql.ast.expr.SQLPropertyExpr;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableAddConstraint;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableAddIndex;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableDropConstraint;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableDropIndex;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableDropKey;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableItem;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableRename;
+import com.alibaba.druid.sql.ast.statement.SQLAlterTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLConstraint;
+import com.alibaba.druid.sql.ast.statement.SQLCreateDatabaseStatement;
+import com.alibaba.druid.sql.ast.statement.SQLCreateIndexStatement;
+import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLCreateViewStatement;
+import com.alibaba.druid.sql.ast.statement.SQLDeleteStatement;
+import com.alibaba.druid.sql.ast.statement.SQLDropDatabaseStatement;
+import com.alibaba.druid.sql.ast.statement.SQLDropIndexStatement;
+import com.alibaba.druid.sql.ast.statement.SQLDropTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLDropViewStatement;
+import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
+import com.alibaba.druid.sql.ast.statement.SQLInsertStatement;
+import com.alibaba.druid.sql.ast.statement.SQLTableSource;
+import com.alibaba.druid.sql.ast.statement.SQLTruncateStatement;
+import com.alibaba.druid.sql.ast.statement.SQLUnique;
+import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
+import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlRenameTableStatement;
+import com.alibaba.druid.sql.parser.ParserException;
+import com.alibaba.druid.util.JdbcConstants;
 import com.alibaba.otter.canal.protocol.CanalEntry.EventType;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * @author agapple 2017年7月27日 下午4:05:34
- * @since 1.0.25
- */
 public class DruidDdlParser {
 
     public static List<DdlResult> parse(String queryString, String schmeaName) {
-        List<SQLStatement> stmtList = null;
+        List<SQLStatement> stmtList;
         try {
             stmtList = SQLUtils.parseStatements(queryString, JdbcConstants.MYSQL, false);
         } catch (ParserException e) {
@@ -57,7 +71,7 @@ public class DruidDdlParser {
             return Arrays.asList(ddlResult);
         }
 
-        List<DdlResult> ddlResults = new ArrayList<DdlResult>();
+        List<DdlResult> ddlResults = new ArrayList<>();
         for (SQLStatement statement : stmtList) {
             if (statement instanceof SQLCreateTableStatement) {
                 DdlResult ddlResult = new DdlResult();
@@ -67,6 +81,16 @@ public class DruidDdlParser {
                 ddlResults.add(ddlResult);
             } else if (statement instanceof SQLAlterTableStatement) {
                 SQLAlterTableStatement alterTable = (SQLAlterTableStatement) statement;
+                if (CollectionUtils.isEmpty(alterTable.getItems())
+                        && CollectionUtils.isNotEmpty(alterTable.getTableOptions())) {
+                    DdlResultExtend ddlResult = new DdlResultExtend();
+                    processName(ddlResult, schmeaName, alterTable.getName(), false);
+                    ddlResult.setType(EventType.QUERY);
+                    ddlResult.setChunjunEventType(
+                            com.dtstack.chunjun.cdc.EventType.ALTER_TABLE_COMMENT);
+                    ddlResults.add(ddlResult);
+                }
+
                 for (SQLAlterTableItem item : alterTable.getItems()) {
                     if (item instanceof SQLAlterTableRename) {
                         DdlResult ddlResult = new DdlResult();
@@ -143,7 +167,7 @@ public class DruidDdlParser {
                 }
             } else if (statement instanceof MySqlRenameTableStatement) {
                 MySqlRenameTableStatement rename = (MySqlRenameTableStatement) statement;
-                for (Item item : rename.getItems()) {
+                for (MySqlRenameTableStatement.Item item : rename.getItems()) {
                     DdlResult ddlResult = new DdlResult();
                     processName(ddlResult, schmeaName, item.getName(), true);
                     processName(ddlResult, schmeaName, item.getTo(), false);
@@ -172,14 +196,16 @@ public class DruidDdlParser {
                 ddlResults.add(ddlResult);
             } else if (statement instanceof SQLCreateDatabaseStatement) {
                 SQLCreateDatabaseStatement create = (SQLCreateDatabaseStatement) statement;
-                DdlResult ddlResult = new DdlResult();
+                DdlResultExtend ddlResult = new DdlResultExtend();
                 ddlResult.setType(EventType.QUERY);
+                ddlResult.setChunjunEventType(com.dtstack.chunjun.cdc.EventType.CREATE_SCHEMA);
                 processName(ddlResult, create.getDatabaseName(), null, false);
                 ddlResults.add(ddlResult);
             } else if (statement instanceof SQLDropDatabaseStatement) {
                 SQLDropDatabaseStatement drop = (SQLDropDatabaseStatement) statement;
-                DdlResult ddlResult = new DdlResult();
+                DdlResultExtend ddlResult = new DdlResultExtend();
                 ddlResult.setType(EventType.QUERY);
+                ddlResult.setChunjunEventType(com.dtstack.chunjun.cdc.EventType.DROP_SCHEMA);
                 processName(ddlResult, drop.getDatabaseName(), null, false);
                 ddlResults.add(ddlResult);
             }

@@ -17,8 +17,8 @@
  */
 package com.dtstack.chunjun.connector.hdfs.sink;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.connector.hdfs.conf.HdfsConf;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.connector.hdfs.config.HdfsConfig;
 import com.dtstack.chunjun.connector.hdfs.enums.CompressType;
 import com.dtstack.chunjun.constants.ConstantValue;
 import com.dtstack.chunjun.sink.format.BaseFileOutputFormat;
@@ -30,7 +30,9 @@ import com.dtstack.chunjun.util.PluginUtil;
 import org.apache.flink.api.common.cache.DistributedCache;
 import org.apache.flink.api.common.functions.RuntimeContext;
 
-import org.apache.commons.collections.CollectionUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -38,37 +40,34 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Date: 2021/06/09 Company: www.dtstack.com
- *
- * @author tudou
- */
+@Slf4j
 public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
 
+    private static final long serialVersionUID = 6079975649960844071L;
+
     protected FileSystem fs;
-    protected HdfsConf hdfsConf;
+    protected HdfsConfig hdfsConfig;
 
     protected List<String> fullColumnNameList;
     protected List<String> fullColumnTypeList;
-    protected Configuration conf;
+    protected Configuration config;
     protected transient Map<String, ColumnTypeUtil.DecimalInfo> decimalColInfo;
     protected CompressType compressType;
 
     @Override
     protected void openInternal(int taskNumber, int numTasks) throws IOException {
         // 这里休眠一段时间是为了避免reader和writer或者多个任务在同一个taskManager里同时认证kerberos
-        if (FileSystemUtil.isOpenKerberos(hdfsConf.getHadoopConfig())) {
+        if (FileSystemUtil.isOpenKerberos(hdfsConfig.getHadoopConfig())) {
             try {
                 Thread.sleep(5000L + (long) (10000 * Math.random()));
             } catch (Exception e) {
-                LOG.warn("", e);
+                log.warn("", e);
             }
         }
         super.openInternal(taskNumber, numTasks);
@@ -76,22 +75,24 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
 
     @Override
     protected void initVariableFields() {
-        if (CollectionUtils.isNotEmpty(hdfsConf.getFullColumnName())) {
-            fullColumnNameList = hdfsConf.getFullColumnName();
+        if (CollectionUtils.isNotEmpty(hdfsConfig.getFullColumnName())) {
+            fullColumnNameList = hdfsConfig.getFullColumnName();
         } else {
             fullColumnNameList =
-                    hdfsConf.getColumn().stream()
-                            .map(FieldConf::getName)
+                    hdfsConfig.getColumn().stream()
+                            .map(FieldConfig::getName)
                             .collect(Collectors.toList());
+            hdfsConfig.setFullColumnName(fullColumnNameList);
         }
 
-        if (CollectionUtils.isNotEmpty(hdfsConf.getFullColumnType())) {
-            fullColumnTypeList = hdfsConf.getFullColumnType();
+        if (CollectionUtils.isNotEmpty(hdfsConfig.getFullColumnType())) {
+            List<String> fullColumnType = hdfsConfig.getFullColumnType();
         } else {
             fullColumnTypeList =
-                    hdfsConf.getColumn().stream()
-                            .map(FieldConf::getType)
+                    hdfsConfig.getColumn().stream()
+                            .map(fieldConfig -> fieldConfig.getType().getType())
                             .collect(Collectors.toList());
+            hdfsConfig.setFullColumnType(fullColumnTypeList);
         }
         compressType = getCompressType();
         super.initVariableFields();
@@ -105,7 +106,7 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
                 openSource();
             }
             if (fs.exists(dir)) {
-                if (fs.isFile(dir)) {
+                if (fs.getFileStatus(dir).isFile()) {
                     throw new ChunJunRuntimeException(String.format("dir:[%s] is a file", tmpPath));
                 }
             } else {
@@ -115,6 +116,12 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
             throw new ChunJunRuntimeException(
                     "cannot check or create temp directory: " + tmpPath, e);
         }
+    }
+
+    /** 文件分隔符(File.separatorChar)在windows为\，而在linux中为/，在hadoop中路径需要固定为/， */
+    protected char getHdfsPathChar() {
+        // hadoop 文件系统固定为/，避免路径不对，文件写入错误及移动失败
+        return '/';
     }
 
     @Override
@@ -129,7 +136,9 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
 
     @Override
     protected void openSource() {
-        conf = FileSystemUtil.getConfiguration(hdfsConf.getHadoopConfig(), hdfsConf.getDefaultFS());
+        config =
+                FileSystemUtil.getConfiguration(
+                        hdfsConfig.getHadoopConfig(), hdfsConfig.getDefaultFS());
         RuntimeContext runtimeContext = null;
         try {
             runtimeContext = getRuntimeContext();
@@ -145,7 +154,11 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
         try {
             fs =
                     FileSystemUtil.getFileSystem(
-                            hdfsConf.getHadoopConfig(), hdfsConf.getDefaultFS(), distributedCache);
+                            hdfsConfig.getHadoopConfig(),
+                            hdfsConfig.getDefaultFS(),
+                            distributedCache,
+                            jobId,
+                            String.valueOf(taskNumber));
         } catch (Exception e) {
             throw new ChunJunRuntimeException("can't init fileSystem", e);
         }
@@ -158,16 +171,28 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
 
     @Override
     protected long getCurrentFileSize() {
-        String path = tmpPath + File.separatorChar + currentFileName;
-        try {
-            if (hdfsConf.getMaxFileSize() > ConstantValue.STORE_SIZE_G) {
-                return fs.getFileStatus(new Path(path)).getLen();
-            } else {
-                return fs.open(new Path(path)).available();
+        String path = tmpPath + getHdfsPathChar() + currentFileName;
+        int retryTimes = 1;
+        while (retryTimes <= 3) {
+            try {
+                if (hdfsConfig.getMaxFileSize() > ConstantValue.STORE_SIZE_G) {
+                    return fs.getFileStatus(new Path(path)).getLen();
+                } else {
+                    return fs.open(new Path(path)).available();
+                }
+            } catch (IOException e) {
+                if (++retryTimes <= 3) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ignore) {
+                    }
+                } else {
+                    throw new ChunJunRuntimeException(
+                            "can't get file size from hdfs, file = " + path, e);
+                }
             }
-        } catch (IOException e) {
-            throw new ChunJunRuntimeException("can't get file size from hdfs, file = " + path, e);
         }
+        return 0;
     }
 
     @Override
@@ -182,9 +207,9 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
             FileStatus[] dataFiles = fs.listStatus(tmpDir, pathFilter);
             for (FileStatus dataFile : dataFiles) {
                 currentFilePath = dataFile.getPath().getName();
-                FileUtil.copy(fs, dataFile.getPath(), fs, dir, false, conf);
+                FileUtil.copy(fs, dataFile.getPath(), fs, dir, false, config);
                 copyList.add(currentFilePath);
-                LOG.info("copy temp file:{} to dir:{}", currentFilePath, dir);
+                log.info("copy temp file:{} to dir:{}", currentFilePath, dir);
             }
         } catch (Exception e) {
             throw new ChunJunRuntimeException(
@@ -201,10 +226,10 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
         String currentFilePath = "";
         try {
             for (String fileName : this.preCommitFilePathList) {
-                currentFilePath = path + File.separatorChar + fileName;
+                currentFilePath = path + getHdfsPathChar() + fileName;
                 Path commitFilePath = new Path(currentFilePath);
                 fs.delete(commitFilePath, true);
-                LOG.info("delete file:{}", currentFilePath);
+                log.info("delete file:{}", currentFilePath);
             }
         } catch (IOException e) {
             throw new ChunJunRuntimeException(
@@ -219,6 +244,13 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
         }
         String currentFilePath = "";
         try {
+            // 在目标目录下生成一个指定文件名的空文件，例如：_SUCCESS 空文件
+            if (StringUtils.isNotBlank(hdfsConfig.getFinishedFileName())) {
+                String finishedFilePath =
+                        tmpPath + getHdfsPathChar() + hdfsConfig.getFinishedFileName();
+                fs.create(new Path(finishedFilePath), true);
+                log.info("Committed with finished file:{}", finishedFilePath);
+            }
             Path dir = new Path(outputFilePath);
             Path tmpDir = new Path(tmpPath);
 
@@ -226,7 +258,7 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
             for (FileStatus dataFile : dataFiles) {
                 currentFilePath = dataFile.getPath().getName();
                 fs.rename(dataFile.getPath(), dir);
-                LOG.info("move temp file:{} to dir:{}", dataFile.getPath(), dir);
+                log.info("move temp file:{} to dir:{}", dataFile.getPath(), dir);
             }
             fs.delete(tmpDir, true);
         } catch (IOException e) {
@@ -257,19 +289,19 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
     /**
      * get file compress type
      *
-     * @return
+     * @return compress type.
      */
     protected abstract CompressType getCompressType();
 
     protected void deleteDirectory(String path) {
-        LOG.info("start to delete directory：{}", path);
+        log.info("start to delete directory：{}", path);
         try {
             Path dir = new Path(path);
             if (fs == null) {
                 openSource();
             }
             if (fs.exists(dir)) {
-                if (fs.isFile(dir)) {
+                if (fs.getFileStatus(dir).isFile()) {
                     throw new ChunJunRuntimeException(String.format("dir:[%s] is a file", path));
                 } else {
                     fs.delete(dir, true);
@@ -280,11 +312,11 @@ public abstract class BaseHdfsOutputFormat extends BaseFileOutputFormat {
         }
     }
 
-    public HdfsConf getHdfsConf() {
-        return hdfsConf;
+    public HdfsConfig getHdfsConf() {
+        return hdfsConfig;
     }
 
-    public void setHdfsConf(HdfsConf hdfsConf) {
-        this.hdfsConf = hdfsConf;
+    public void setHdfsConf(HdfsConfig hdfsConfig) {
+        this.hdfsConfig = hdfsConfig;
     }
 }

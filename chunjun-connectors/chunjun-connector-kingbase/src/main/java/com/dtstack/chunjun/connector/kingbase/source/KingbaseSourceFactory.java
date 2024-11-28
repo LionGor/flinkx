@@ -17,27 +17,15 @@
  */
 package com.dtstack.chunjun.connector.kingbase.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormatBuilder;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcSourceFactory;
 import com.dtstack.chunjun.connector.kingbase.dialect.KingbaseDialect;
 
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
-/**
- * @description:
- * @program chunjun
- * @author: lany
- * @create: 2021/05/13 20:10
- */
 public class KingbaseSourceFactory extends JdbcSourceFactory {
 
-    public KingbaseSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
-        super(syncConf, env, new KingbaseDialect());
-    }
-
-    @Override
-    protected JdbcInputFormatBuilder getBuilder() {
-        return new JdbcInputFormatBuilder(new KingbaseInputFormat());
+    public KingbaseSourceFactory(SyncConfig syncConfig, StreamExecutionEnvironment env) {
+        super(syncConfig, env, new KingbaseDialect());
     }
 }

@@ -18,15 +18,12 @@
 
 package com.dtstack.chunjun.throwable;
 
-/**
- * The Exception describing errors when read a record
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
-public class ReadRecordException extends Exception {
+import java.io.IOException;
 
+/** The Exception describing errors when read a record */
+public class ReadRecordException extends IOException {
+
+    private static final long serialVersionUID = 453087894656079820L;
     private final int colIndex;
     private final Object rowData;
 

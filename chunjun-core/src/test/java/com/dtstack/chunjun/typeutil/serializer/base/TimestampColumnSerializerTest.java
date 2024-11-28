@@ -21,8 +21,8 @@ package com.dtstack.chunjun.typeutil.serializer.base;
 import com.dtstack.chunjun.element.AbstractBaseColumn;
 import com.dtstack.chunjun.element.column.NullColumn;
 import com.dtstack.chunjun.element.column.TimestampColumn;
+import com.dtstack.chunjun.typeutil.SerializerTestBase;
 import com.dtstack.chunjun.typeutil.serializer.DeeplyEqualsChecker;
-import com.dtstack.chunjun.typeutil.serializer.SerializerTestBase;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -30,20 +30,15 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import java.sql.Timestamp;
 import java.util.function.BiFunction;
 
-/** @author liuliu 2022/5/13 */
 public class TimestampColumnSerializerTest extends SerializerTestBase<AbstractBaseColumn> {
 
     @Override
     protected Tuple2<BiFunction<Object, Object, Boolean>, DeeplyEqualsChecker.CustomEqualityChecker>
             getCustomChecker() {
         return Tuple2.of(
-                new BiFunction<Object, Object, Boolean>() {
-                    @Override
-                    public Boolean apply(Object o, Object o2) {
-                        return (o instanceof TimestampColumn && o2 instanceof TimestampColumn)
-                                || (o instanceof NullColumn && o2 instanceof NullColumn);
-                    }
-                },
+                (o, o2) ->
+                        (o instanceof TimestampColumn && o2 instanceof TimestampColumn)
+                                || (o instanceof NullColumn && o2 instanceof NullColumn),
                 new TimestampColumnChecker());
     }
 

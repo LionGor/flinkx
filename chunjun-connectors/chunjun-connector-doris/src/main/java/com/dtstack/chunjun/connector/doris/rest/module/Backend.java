@@ -20,24 +20,14 @@ package com.dtstack.chunjun.connector.doris.rest.module;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 
 import java.util.List;
 
-/**
- * @author tiezhu@dtstack.com
- * @since 08/10/2021 Friday
- */
 @JsonIgnoreProperties(ignoreUnknown = true)
+@Data
 public class Backend {
 
     @JsonProperty(value = "rows")
     private List<BackendRow> rows;
-
-    public List<BackendRow> getRows() {
-        return rows;
-    }
-
-    public void setRows(List<BackendRow> rows) {
-        this.rows = rows;
-    }
 }

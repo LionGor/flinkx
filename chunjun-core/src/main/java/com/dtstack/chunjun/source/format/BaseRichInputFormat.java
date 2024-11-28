@@ -18,10 +18,11 @@
 
 package com.dtstack.chunjun.source.format;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
+import com.dtstack.chunjun.config.CommonConfig;
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.constants.Metrics;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.dirty.DirtyConf;
+import com.dtstack.chunjun.dirty.DirtyConfig;
 import com.dtstack.chunjun.dirty.manager.DirtyManager;
 import com.dtstack.chunjun.dirty.utils.DirtyConfUtil;
 import com.dtstack.chunjun.metrics.AccumulatorCollector;
@@ -46,8 +47,9 @@ import org.apache.flink.core.io.InputSplitAssigner;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.table.data.RowData;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -61,16 +63,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>扩展了org.apache.flink.api.common.io.RichInputFormat, 因而可以通过{@link
  * #getRuntimeContext()}获取运行时执行上下文 自动完成 用户只需覆盖openInternal,closeInternal等方法, 无需操心细节
- *
- * @author jiangbo
  */
+@Slf4j
+@Getter
+@Setter
 public abstract class BaseRichInputFormat extends RichInputFormat<RowData, InputSplit> {
-    protected static final long serialVersionUID = 1L;
 
-    protected final Logger LOG = LoggerFactory.getLogger(getClass());
+    private static final long serialVersionUID = -7071023353207658370L;
 
     /** BaseRichInputFormat是否结束 */
-    private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    protected final AtomicBoolean isClosed = new AtomicBoolean(false);
     /** 环境上下文 */
     protected StreamingRuntimeContext context;
     /** 任务名称 */
@@ -82,7 +84,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
     /** 任务开始时间, openInputFormat()开始计算 */
     protected long startTime;
     /** 任务公共配置 */
-    protected ChunJunCommonConf config;
+    protected CommonConfig config;
     /** 数据类型转换器 */
     protected AbstractRowConverter rowConverter;
     /** 输入指标组 */
@@ -103,13 +105,13 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
     /** A collection of field names filled in user scripts with constants removed */
     protected List<String> columnNameList = new ArrayList<>();
     /** A collection of field types filled in user scripts with constants removed */
-    protected List<String> columnTypeList = new ArrayList<>();
+    protected List<TypeConfig> columnTypeList = new ArrayList<>();
     /** dirty manager which collects the dirty data. */
     protected DirtyManager dirtyManager;
     /** BaseRichInputFormat是否已经初始化 */
     private boolean initialized = false;
 
-    private boolean useAbstractColumn;
+    protected boolean useAbstractColumn;
 
     @Override
     public final void configure(Configuration parameters) {
@@ -126,7 +128,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         try {
             return createInputSplitsInternal(minNumSplits);
         } catch (Exception e) {
-            LOG.warn("error to create InputSplits", e);
+            log.warn("error to create InputSplits", e);
             return new ErrorInputSplit[] {new ErrorInputSplit(ExceptionUtil.getErrorMessage(e))};
         }
     }
@@ -142,7 +144,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
 
         ExecutionConfig.GlobalJobParameters params =
                 context.getExecutionConfig().getGlobalJobParameters();
-        DirtyConf dc = DirtyConfUtil.parseFromMap(params.toMap());
+        DirtyConfig dc = DirtyConfUtil.parseFromMap(params.toMap());
         this.dirtyManager = new DirtyManager(dc, this.context);
 
         if (inputSplit instanceof ErrorInputSplit) {
@@ -160,7 +162,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
 
         openInternal(inputSplit);
 
-        LOG.info(
+        log.info(
                 "[{}] open successfully, \ninputSplit = {}, \n[{}]: \n{} ",
                 this.getClass().getSimpleName(),
                 inputSplit,
@@ -188,16 +190,11 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
     }
 
     @Override
-    public RowData nextRecord(RowData rowData) {
+    public RowData nextRecord(RowData rowData) throws ReadRecordException {
         if (byteRateLimiter != null) {
             byteRateLimiter.acquire();
         }
-        RowData internalRow = null;
-        try {
-            internalRow = nextRecordInternal(rowData);
-        } catch (ReadRecordException e) {
-            dirtyManager.collect(e.getRowData(), e, null);
-        }
+        RowData internalRow = nextRecordInternal(rowData);
         if (internalRow != null) {
             updateDuration();
             if (numReadCounter != null) {
@@ -249,11 +246,11 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         }
 
         isClosed.set(true);
-        LOG.info("subtask input close finished");
+        log.info("subtask input close finished");
     }
 
     /** 更新任务执行时间指标 */
-    private void updateDuration() {
+    protected void updateDuration() {
         if (durationCounter != null) {
             durationCounter.resetLocal();
             durationCounter.add(System.currentTimeMillis() - startTime);
@@ -325,11 +322,6 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         }
     }
 
-    /**
-     * 更新checkpoint状态缓存map
-     *
-     * @return
-     */
     public FormatState getFormatState() {
         if (formatState != null && numReadCounter != null && inputMetric != null) {
             formatState.setMetric(inputMetric.getMetricCounters());
@@ -347,60 +339,11 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         return false;
     }
 
-    /**
-     * 由子类实现，创建数据分片
-     *
-     * @param minNumSplits 分片数量
-     * @return 分片数组
-     * @throws Exception 可能会出现连接数据源异常
-     */
     protected abstract InputSplit[] createInputSplitsInternal(int minNumSplits) throws Exception;
 
-    /**
-     * 由子类实现，打开数据连接
-     *
-     * @param inputSplit 分片
-     * @throws IOException 连接异常
-     */
     protected abstract void openInternal(InputSplit inputSplit) throws IOException;
 
-    /**
-     * 由子类实现，读取一条数据
-     *
-     * @param rowData 需要创建和填充的数据
-     * @return 读取的数据
-     * @throws ReadRecordException 读取异常
-     */
     protected abstract RowData nextRecordInternal(RowData rowData) throws ReadRecordException;
 
-    /**
-     * 由子类实现，关闭资源
-     *
-     * @throws IOException 连接关闭异常
-     */
     protected abstract void closeInternal() throws IOException;
-
-    public void setRestoreState(FormatState formatState) {
-        this.formatState = formatState;
-    }
-
-    public ChunJunCommonConf getConfig() {
-        return config;
-    }
-
-    public void setConfig(ChunJunCommonConf config) {
-        this.config = config;
-    }
-
-    public void setRowConverter(AbstractRowConverter rowConverter) {
-        this.rowConverter = rowConverter;
-    }
-
-    public void setDirtyManager(DirtyManager dirtyManager) {
-        this.dirtyManager = dirtyManager;
-    }
-
-    public void setUseAbstractColumn(boolean useAbstractColumn) {
-        this.useAbstractColumn = useAbstractColumn;
-    }
 }

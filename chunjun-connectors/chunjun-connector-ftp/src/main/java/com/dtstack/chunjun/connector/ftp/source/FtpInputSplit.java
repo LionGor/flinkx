@@ -18,34 +18,24 @@
 
 package com.dtstack.chunjun.connector.ftp.source;
 
-import com.dtstack.chunjun.connector.ftp.client.File;
+import com.dtstack.chunjun.connector.ftp.extend.ftp.concurrent.FtpFileSplit;
 
 import org.apache.flink.core.io.InputSplit;
+
+import lombok.Getter;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The Class describing each InputSplit of Ftp
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
+@Getter
 public class FtpInputSplit implements InputSplit {
 
-    private List<File> paths = new ArrayList<>();
+    private static final long serialVersionUID = 3420162941987964041L;
+
+    private final List<FtpFileSplit> fileSplits = new ArrayList<>();
 
     @Override
     public int getSplitNumber() {
         return 0;
-    }
-
-    public List<File> getPaths() {
-        return paths;
-    }
-
-    public void setPaths(List<File> paths) {
-        this.paths = paths;
     }
 }

@@ -23,11 +23,6 @@ import com.dtstack.chunjun.table.options.BaseFileOptions;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
-/**
- * @program chunjun
- * @author: xiuzhu
- * @create: 2021/06/19
- */
 public class FtpOptions extends BaseFileOptions {
 
     public static final ConfigOption<String> FORMAT =
@@ -77,4 +72,38 @@ public class FtpOptions extends BaseFileOptions {
                     .stringType()
                     .defaultValue("PASV")
                     .withDescription("ftp connectPattern");
+
+    public static final ConfigOption<Boolean> FIRST_LINE_HEADER =
+            ConfigOptions.key("first-line-header")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("skip header");
+
+    public static final ConfigOption<String> FILE_TYPE =
+            ConfigOptions.key("file-type")
+                    .stringType()
+                    .defaultValue("TXT")
+                    .withDescription("file type");
+
+    public static final ConfigOption<String> FIELD_DELIMITER =
+            ConfigOptions.key("field-delimiter")
+                    .stringType()
+                    .defaultValue(",")
+                    .withDescription("field delimiter");
+
+    public static final ConfigOption<String> COMPRESS_TYPE =
+            ConfigOptions.key("compress-type")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("compress type");
+    public static final ConfigOption<String> SHEET_NO =
+            ConfigOptions.key("sheet-no")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("sheet no, Multiple numbers separated by commas(,)");
+    public static final ConfigOption<String> COLUMN_INDEX =
+            ConfigOptions.key("column-index")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("column index, Multiple numbers separated by commas(,)");
 }

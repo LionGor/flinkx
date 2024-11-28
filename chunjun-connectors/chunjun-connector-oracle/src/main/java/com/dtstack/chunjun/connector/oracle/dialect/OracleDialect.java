@@ -18,14 +18,21 @@
 
 package com.dtstack.chunjun.connector.oracle.dialect;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
+import com.dtstack.chunjun.config.CommonConfig;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.jdbc.conf.TableIdentify;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
-import com.dtstack.chunjun.connector.oracle.converter.OracleColumnConverter;
+import com.dtstack.chunjun.connector.jdbc.util.key.KeyUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.NumericTypeUtil;
 import com.dtstack.chunjun.connector.oracle.converter.OracleRawTypeConverter;
-import com.dtstack.chunjun.connector.oracle.converter.OracleRowConverter;
+import com.dtstack.chunjun.connector.oracle.converter.OracleSqlConverter;
+import com.dtstack.chunjun.connector.oracle.converter.OracleSyncConverter;
+import com.dtstack.chunjun.connector.oracle.util.increment.OracleTimestampTypeUtil;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
+import com.dtstack.chunjun.enums.ColumnType;
+import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
@@ -33,18 +40,16 @@ import org.apache.flink.table.types.logical.RowType;
 import io.vertx.core.json.JsonArray;
 import org.apache.commons.lang3.StringUtils;
 
+import java.math.BigInteger;
 import java.sql.ResultSet;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * company www.dtstack.com
- *
- * @author jier
- */
 public class OracleDialect implements JdbcDialect {
+
+    private static final long serialVersionUID = -1304861371329709477L;
 
     @Override
     public String dialectName() {
@@ -57,7 +62,7 @@ public class OracleDialect implements JdbcDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeConverter() {
         return OracleRawTypeConverter::apply;
     }
 
@@ -70,6 +75,11 @@ public class OracleDialect implements JdbcDialect {
     public Optional<String> getReplaceStatement(
             String schema, String tableName, String[] fieldNames) {
         throw new RuntimeException("Oracle does not support replace sql");
+    }
+
+    @Override
+    public boolean supportUpsert() {
+        return true;
     }
 
     @Override
@@ -117,13 +127,13 @@ public class OracleDialect implements JdbcDialect {
     @Override
     public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
             getRowConverter(RowType rowType) {
-        return new OracleRowConverter(rowType);
+        return new OracleSqlConverter(rowType);
     }
 
     @Override
     public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getColumnConverter(RowType rowType, ChunJunCommonConf commonConf) {
-        return new OracleColumnConverter(rowType, commonConf);
+            getColumnConverter(RowType rowType, CommonConfig commonConfig) {
+        return new OracleSyncConverter(rowType, commonConfig);
     }
 
     /** build select sql , such as (SELECT ? "A",? "B" FROM DUAL) */
@@ -173,5 +183,27 @@ public class OracleDialect implements JdbcDialect {
     @Override
     public String getRowNumColumn(String orderBy) {
         return "rownum as " + getRowNumColumnAlias();
+    }
+
+    @Override
+    public KeyUtil<?, BigInteger> initKeyUtil(String incrementName, TypeConfig incrementType) {
+        switch (ColumnType.getType(incrementType.getType())) {
+            case TIMESTAMP:
+            case DATE:
+                return new OracleTimestampTypeUtil();
+            default:
+                if (ColumnType.isNumberType(incrementType.getType())) {
+                    return new NumericTypeUtil();
+                } else {
+                    throw new ChunJunRuntimeException(
+                            String.format(
+                                    "Unsupported columnType [%s], columnName [%s]",
+                                    incrementType, incrementName));
+                }
+        }
+    }
+
+    public TableIdentify getTableIdentify(String confSchema, String confTable) {
+        return new TableIdentify(null, confSchema, confTable, this::quoteIdentifier, true);
     }
 }

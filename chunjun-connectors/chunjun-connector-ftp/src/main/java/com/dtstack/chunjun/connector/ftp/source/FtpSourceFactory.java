@@ -18,13 +18,12 @@
 
 package com.dtstack.chunjun.connector.ftp.source;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.ftp.conf.ConfigConstants;
-import com.dtstack.chunjun.connector.ftp.conf.FtpConfig;
-import com.dtstack.chunjun.connector.ftp.converter.FtpColumnConverter;
-import com.dtstack.chunjun.connector.ftp.converter.FtpRawTypeConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.ftp.config.ConfigConstants;
+import com.dtstack.chunjun.connector.ftp.config.FtpConfig;
+import com.dtstack.chunjun.connector.ftp.converter.FtpRawTypeMapper;
+import com.dtstack.chunjun.connector.ftp.converter.FtpSyncConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.JsonUtil;
 import com.dtstack.chunjun.util.StringUtil;
@@ -35,19 +34,11 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
-/**
- * @program chunjun
- * @author: xiuzhu
- * @create: 2021/06/19
- */
 public class FtpSourceFactory extends SourceFactory {
 
-    private FtpConfig ftpConfig;
+    private final FtpConfig ftpConfig;
 
-    public FtpSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
+    public FtpSourceFactory(SyncConfig syncConf, StreamExecutionEnvironment env) {
         super(syncConf, env);
         ftpConfig =
                 JsonUtil.toObject(
@@ -61,6 +52,8 @@ public class FtpSourceFactory extends SourceFactory {
             String fieldDelimiter = StringUtil.convertRegularExpr(ftpConfig.getFieldDelimiter());
             ftpConfig.setFieldDelimiter(fieldDelimiter);
         }
+
+        ftpConfig.setColumn(syncConf.getReader().getFieldList());
         super.initCommonConf(ftpConfig);
     }
 
@@ -68,25 +61,14 @@ public class FtpSourceFactory extends SourceFactory {
     public DataStream<RowData> createSource() {
         FtpInputFormatBuilder builder = new FtpInputFormatBuilder();
         builder.setFtpConfig(ftpConfig);
-        List<FieldConf> fieldConfList =
-                ftpConfig.getColumn().stream()
-                        .peek(
-                                fieldConf -> {
-                                    if (fieldConf.getName() == null) {
-                                        fieldConf.setName(String.valueOf(fieldConf.getIndex()));
-                                    }
-                                })
-                        .collect(Collectors.toList());
-        ftpConfig.setColumn(fieldConfList);
-        final RowType rowType =
-                TableUtil.createRowType(ftpConfig.getColumn(), getRawTypeConverter());
-        builder.setRowConverter(new FtpColumnConverter(rowType, ftpConfig), useAbstractBaseColumn);
+        final RowType rowType = TableUtil.createRowType(ftpConfig.getColumn(), getRawTypeMapper());
+        builder.setRowConverter(new FtpSyncConverter(rowType, ftpConfig), useAbstractBaseColumn);
 
         return createInput(builder.finish());
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return FtpRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return FtpRawTypeMapper::apply;
     }
 }

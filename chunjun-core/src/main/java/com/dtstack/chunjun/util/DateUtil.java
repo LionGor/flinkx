@@ -18,6 +18,7 @@
 
 package com.dtstack.chunjun.util;
 
+import cn.hutool.core.date.LocalDateTimeUtil;
 import org.apache.commons.lang3.StringUtils;
 
 import java.sql.Timestamp;
@@ -31,22 +32,18 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalQueries;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static java.time.format.DateTimeFormatter.ISO_INSTANT;
 
-/**
- * Date Utilities
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
 public class DateUtil {
 
     private static final String TIME_ZONE = "GMT+8";
@@ -89,6 +86,8 @@ public class DateUtil {
     private static final Pattern TIME = Pattern.compile("^\\d{2}:\\d{2}:\\d{2}(\\.\\d{3,9})?Z$");
     private static final Pattern TIMESTAMP_FORMAT_PATTERN =
             Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}?.*");
+    private static final Pattern TIMESTAMP_FORMAT_WITH_TIMEZONE_PATTERN =
+            Pattern.compile("([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})(.*)");
     private static final int MILLIS_PER_SECOND = 1000;
 
     /** parse yyyy-MM-dd HH:mm:ss.SSSSSS format string, like '2021-06-12 12:01:21.011101' * */
@@ -166,6 +165,13 @@ public class DateUtil {
 
         throw new IllegalArgumentException(
                 "Can't convert " + column.getClass().getName() + " to Date");
+    }
+
+    public static Timestamp columnToTimestamp(String data, String format) {
+        LocalDateTime parse = LocalDateTimeUtil.parse(data, format);
+        LocalTime localTime = parse.query(TemporalQueries.localTime());
+        LocalDate localDate = parse.query(TemporalQueries.localDate());
+        return Timestamp.valueOf(LocalDateTime.of(localDate, localTime));
     }
 
     public static java.sql.Timestamp columnToTimestamp(
@@ -380,6 +386,24 @@ public class DateUtil {
             Instant instant = Instant.from(ISO_INSTANT.parse(timeStr));
             return new Timestamp(instant.getEpochSecond() * MILLIS_PER_SECOND);
         }
+
+        TemporalAccessor parsedTimestamp = null;
+
+        try {
+            parsedTimestamp = DateTimeFormatter.ISO_LOCAL_DATE_TIME.parse(timeStr);
+        } catch (Exception e) {
+        }
+        try {
+            parsedTimestamp = DateTimeFormatter.ISO_OFFSET_DATE_TIME.parse(timeStr);
+        } catch (Exception e) {
+        }
+
+        if (parsedTimestamp != null) {
+            LocalTime localTime = parsedTimestamp.query(TemporalQueries.localTime());
+            LocalDate localDate = parsedTimestamp.query(TemporalQueries.localDate());
+            return Timestamp.valueOf(LocalDateTime.of(localDate, localTime));
+        }
+
         Date date = stringToDate(timeStr, null);
         return null == date ? null : new Timestamp(date.getTime());
     }
@@ -450,5 +474,13 @@ public class DateUtil {
             }
         }
         return -1;
+    }
+
+    public static Timestamp convertToTimestampWithZone(String timestamp) {
+        Matcher matcher = TIMESTAMP_FORMAT_WITH_TIMEZONE_PATTERN.matcher(timestamp);
+        if (matcher.find()) {
+            return Timestamp.valueOf(matcher.group(1));
+        }
+        return null;
     }
 }

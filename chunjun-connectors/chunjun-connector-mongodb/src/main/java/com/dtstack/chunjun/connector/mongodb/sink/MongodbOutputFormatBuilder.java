@@ -18,50 +18,53 @@
 
 package com.dtstack.chunjun.connector.mongodb.sink;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.connector.mongodb.conf.MongoClientConf;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.connector.mongodb.config.MongoClientConfig;
 import com.dtstack.chunjun.connector.mongodb.datasync.MongoClientConfFactory;
-import com.dtstack.chunjun.connector.mongodb.datasync.MongodbDataSyncConf;
+import com.dtstack.chunjun.connector.mongodb.datasync.MongodbDataSyncConfig;
 import com.dtstack.chunjun.sink.WriteMode;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormatBuilder;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
-/**
- * @author Ada Wong
- * @program chunjun
- * @create 2021/06/24
- */
-public class MongodbOutputFormatBuilder extends BaseRichOutputFormatBuilder {
-    MongodbDataSyncConf mongodbDataSyncConf;
+public class MongodbOutputFormatBuilder extends BaseRichOutputFormatBuilder<MongodbOutputFormat> {
+    MongodbDataSyncConfig mongodbDataSyncConfig;
     String upsertKey;
 
-    public MongodbOutputFormatBuilder(MongodbDataSyncConf mongodbDataSyncConf) {
-        this.mongodbDataSyncConf = mongodbDataSyncConf;
-        this.upsertKey = mongodbDataSyncConf.getReplaceKey();
-        MongoClientConf mongoClientConf =
-                MongoClientConfFactory.createMongoClientConf(mongodbDataSyncConf);
+    public static MongodbOutputFormatBuilder newBuilder(
+            MongodbDataSyncConfig mongodbDataSyncConfig) {
+        String upsertKey = mongodbDataSyncConfig.getReplaceKey();
+        MongoClientConfig mongoClientConfig =
+                MongoClientConfFactory.createMongoClientConf(mongodbDataSyncConfig);
         MongodbOutputFormat.WriteMode writeMode =
-                parseWriteMode(mongodbDataSyncConf.getWriteMode());
-        this.format =
-                new MongodbOutputFormat(
-                        mongoClientConf, mongodbDataSyncConf.getReplaceKey(), writeMode);
+                parseWriteMode(mongodbDataSyncConfig.getWriteMode());
+        return new MongodbOutputFormatBuilder(
+                mongodbDataSyncConfig, mongoClientConfig, upsertKey, writeMode);
     }
 
     public MongodbOutputFormatBuilder(
-            MongoClientConf mongoClientConf, String key, MongodbOutputFormat.WriteMode writeMode) {
+            MongodbDataSyncConfig mongodbDataSyncConfig,
+            MongoClientConfig mongoClientConfig,
+            String key,
+            MongodbOutputFormat.WriteMode writeMode) {
+        super(new MongodbOutputFormat(mongoClientConfig, key, writeMode));
         this.upsertKey = key;
-        this.format = new MongodbOutputFormat(mongoClientConf, key, writeMode);
+        this.mongodbDataSyncConfig = mongodbDataSyncConfig;
     }
 
     @Override
     protected void checkFormat() {
+        // mongodbDataSyncConf 是json模式下的实体类
+        // sql 模式这里跳过检查
+        if (mongodbDataSyncConfig == null) {
+            return;
+        }
         if (!StringUtils.isBlank(upsertKey)) {
-            List<FieldConf> fields = mongodbDataSyncConf.getColumn();
+            List<FieldConfig> fields = mongodbDataSyncConfig.getColumn();
             boolean flag = false;
-            for (FieldConf field : fields) {
+            for (FieldConfig field : fields) {
                 if (field.getName().equalsIgnoreCase(upsertKey)) {
                     flag = true;
                     break;
@@ -76,7 +79,7 @@ public class MongodbOutputFormatBuilder extends BaseRichOutputFormatBuilder {
         }
     }
 
-    private MongodbOutputFormat.WriteMode parseWriteMode(String str) {
+    private static MongodbOutputFormat.WriteMode parseWriteMode(String str) {
         if (WriteMode.REPLACE.getMode().equals(str) || WriteMode.UPDATE.getMode().equals(str)) {
             return MongodbOutputFormat.WriteMode.UPSERT;
         } else {

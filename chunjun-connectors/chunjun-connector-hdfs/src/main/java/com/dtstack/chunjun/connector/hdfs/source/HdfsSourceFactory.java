@@ -17,12 +17,12 @@
  */
 package com.dtstack.chunjun.connector.hdfs.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.hdfs.conf.HdfsConf;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsRawTypeConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.hdfs.config.HdfsConfig;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsRawTypeMapper;
 import com.dtstack.chunjun.connector.hdfs.util.HdfsUtil;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.GsonUtil;
 
@@ -30,40 +30,36 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 
-/**
- * Date: 2021/06/08 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class HdfsSourceFactory extends SourceFactory {
-    private final HdfsConf hdfsConf;
+    private final HdfsConfig hdfsConfig;
 
-    public HdfsSourceFactory(SyncConf config, StreamExecutionEnvironment env) {
+    public HdfsSourceFactory(SyncConfig config, StreamExecutionEnvironment env) {
         super(config, env);
-        hdfsConf =
+        hdfsConfig =
                 GsonUtil.GSON.fromJson(
-                        GsonUtil.GSON.toJson(config.getReader().getParameter()), HdfsConf.class);
-        hdfsConf.setColumn(config.getReader().getFieldList());
-        super.initCommonConf(hdfsConf);
+                        GsonUtil.GSON.toJson(config.getReader().getParameter()), HdfsConfig.class);
+        hdfsConfig.setColumn(config.getReader().getFieldList());
+        super.initCommonConf(hdfsConfig);
     }
 
     @Override
     public DataStream<RowData> createSource() {
-        HdfsInputFormatBuilder builder = HdfsInputFormatBuilder.newBuild(hdfsConf.getFileType());
-        builder.setHdfsConf(hdfsConf);
+        HdfsInputFormatBuilder builder = HdfsInputFormatBuilder.newBuild(hdfsConfig.getFileType());
+        builder.setHdfsConf(hdfsConfig);
         AbstractRowConverter rowConverter =
                 HdfsUtil.createRowConverter(
                         useAbstractBaseColumn,
-                        hdfsConf.getFileType(),
-                        hdfsConf.getColumn(),
-                        getRawTypeConverter());
+                        hdfsConfig.getFileType(),
+                        hdfsConfig.getColumn(),
+                        getRawTypeMapper(),
+                        hdfsConfig);
 
         builder.setRowConverter(rowConverter, useAbstractBaseColumn);
         return createInput(builder.finish());
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return HdfsRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return HdfsRawTypeMapper::apply;
     }
 }

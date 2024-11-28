@@ -18,8 +18,8 @@
 
 package com.dtstack.chunjun.connector.oracle.converter;
 
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.throwable.UnsupportedTypeException;
-import com.dtstack.chunjun.util.ColumnTypeUtil;
 
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.AtomicDataType;
@@ -27,15 +27,9 @@ import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 
 import java.sql.SQLException;
-import java.util.Locale;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-/**
- * company www.dtstack.com
- *
- * @author jier
- */
 public class OracleRawTypeConverter {
 
     private static final String TIMESTAMP = "^TIMESTAMP\\(\\d+\\)";
@@ -45,30 +39,27 @@ public class OracleRawTypeConverter {
     /**
      * 将Oracle数据库中的类型，转换成flink的DataType类型。
      *
-     * @param type
+     * @param type typeConfig
      * @return
      * @throws SQLException
      */
-    public static DataType apply(String type) {
-        ColumnTypeUtil.DecimalInfo decimalInfo = null;
-        if (ColumnTypeUtil.isDecimalType(type)) {
-            decimalInfo = ColumnTypeUtil.getDecimalInfo(type, null);
-            if (decimalInfo != null) {
-                type = ColumnTypeUtil.TYPE_NAME;
-            }
-        }
-        switch (type.toUpperCase(Locale.ENGLISH)) {
+    public static DataType apply(TypeConfig type) {
+        switch (type.getType()) {
             case "SMALLINT":
                 return DataTypes.SMALLINT();
             case "BINARY_DOUBLE":
                 return DataTypes.DOUBLE();
             case "CHAR":
+                return DataTypes.CHAR(OracleSqlConverter.CLOB_LENGTH - 1);
+            case "ROWID":
+            case "UROWID":
+            case "STRING":
             case "VARCHAR":
             case "VARCHAR2":
             case "NCHAR":
             case "NVARCHAR2":
             case "LONG":
-                return DataTypes.VARCHAR(OracleRowConverter.CLOB_LENGTH - 1);
+                return DataTypes.VARCHAR(OracleSqlConverter.CLOB_LENGTH - 1);
             case "CLOB":
             case "NCLOB":
                 return new AtomicDataType(new ClobType(true, LogicalTypeRoot.VARCHAR));
@@ -79,9 +70,9 @@ public class OracleRawTypeConverter {
             case "FLOAT":
                 return DataTypes.DECIMAL(38, 18);
             case "DECIMAL":
-                return DataTypes.DECIMAL(decimalInfo.getPrecision(), decimalInfo.getScale());
+                return type.toDecimalDataType();
             case "DATE":
-                return DataTypes.DATE();
+                return DataTypes.TIMESTAMP(0);
             case "TIMESTAMP":
                 return DataTypes.TIMESTAMP();
             case "RAW":
@@ -91,12 +82,17 @@ public class OracleRawTypeConverter {
                 return new AtomicDataType(new BlobType(true, LogicalTypeRoot.VARBINARY));
             case "BINARY_FLOAT":
                 return DataTypes.FLOAT();
+            case "INTERVAL YEAR TO MONTH":
+            case "INTERVALYM":
+                return type.toIntervalYearMonthDataType();
+            case "INTERVAL DAY TO SECOND":
+            case "INTERVALDS":
+                return type.toIntervalDaySecondDataType();
+            case "TIMESTAMP WITH TIME ZONE":
+                return type.toZonedTimestampDataType();
+            case "TIMESTAMP WITH LOCAL TIME ZONE":
+                return type.toLocalZonedTimestampDataType();
             default:
-                if (TIMESTAMP_PREDICATE.test(type)) {
-                    return DataTypes.TIMESTAMP();
-                } else if (type.startsWith("INTERVAL")) {
-                    return DataTypes.STRING();
-                }
                 throw new UnsupportedTypeException(type);
         }
     }

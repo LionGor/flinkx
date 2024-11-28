@@ -29,8 +29,10 @@ import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -39,16 +41,23 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 /** Simple implementation of {@link FieldNamedPreparedStatement}. */
 public class FieldNamedPreparedStatementImpl implements FieldNamedPreparedStatement {
 
-    private final PreparedStatement statement;
+    private PreparedStatement statement;
+    private final String parsedSQL;
     private final int[][] indexMapping;
 
-    private FieldNamedPreparedStatementImpl(PreparedStatement statement, int[][] indexMapping) {
+    private final boolean isDelete;
+
+    private FieldNamedPreparedStatementImpl(
+            PreparedStatement statement, String parsedSQL, int[][] indexMapping, boolean isDelete) {
         this.statement = statement;
+        this.parsedSQL = parsedSQL;
         this.indexMapping = indexMapping;
+        this.isDelete = isDelete;
     }
 
     public static FieldNamedPreparedStatement prepareStatement(
-            Connection connection, String sql, String[] fieldNames) throws SQLException {
+            Connection connection, String sql, String[] fieldNames, String[] nullFieldNames)
+            throws SQLException {
         checkNotNull(connection, "connection must not be null.");
         checkNotNull(sql, "sql must not be null.");
         checkNotNull(fieldNames, "fieldNames must not be null.");
@@ -57,21 +66,47 @@ public class FieldNamedPreparedStatementImpl implements FieldNamedPreparedStatem
             throw new IllegalArgumentException("SQL statement must not contain ? character.");
         }
 
+        boolean isDelete = sql.toLowerCase(Locale.ENGLISH).startsWith("delete");
         HashMap<String, List<Integer>> parameterMap = new HashMap<>();
         String parsedSQL = parseNamedStatement(sql, parameterMap);
-        // currently, the statements must contain all the field parameters
-        checkArgument(parameterMap.size() == fieldNames.length);
+        // currently, the statements must contain all the field parameters, delete param can skip
+        // some special type column,example blob clob raw nclob in oracle
+        if (!isDelete) {
+            //            checkArgument(parameterMap.size() + nullFieldNames.length ==
+            // fieldNames.length);
+            checkArgument(parameterMap.size() == fieldNames.length);
+        }
+
         int[][] indexMapping = new int[fieldNames.length][];
+        List<String> nullFieldNameList = new ArrayList<>(Arrays.asList(nullFieldNames));
+
         for (int i = 0; i < fieldNames.length; i++) {
             String fieldName = fieldNames[i];
-            checkArgument(
-                    parameterMap.containsKey(fieldName),
-                    fieldName + " doesn't exist in the parameters of SQL statement: " + sql);
-            indexMapping[i] = parameterMap.get(fieldName).stream().mapToInt(v -> v).toArray();
+            if (isDelete) {
+                if (nullFieldNameList.contains(fieldName)) {
+                    int[] ints = new int[1];
+                    ints[0] = i + 1;
+                    indexMapping[i] = ints;
+                } else {
+                    // delete param can skip some special type column,example blob clob raw nclob in
+                    // oracle
+                    if (parameterMap.containsKey(fieldName)) {
+                        indexMapping[i] =
+                                parameterMap.get(fieldName).stream().mapToInt(v -> v).toArray();
+                    } else {
+                        indexMapping[i] = null;
+                    }
+                }
+            } else {
+                checkArgument(
+                        parameterMap.containsKey(fieldName),
+                        fieldName + " doesn't exist in the parameters of SQL statement: " + sql);
+                indexMapping[i] = parameterMap.get(fieldName).stream().mapToInt(v -> v).toArray();
+            }
         }
 
         return new FieldNamedPreparedStatementImpl(
-                connection.prepareStatement(parsedSQL), indexMapping);
+                connection.prepareStatement(parsedSQL), parsedSQL, indexMapping, isDelete);
     }
 
     /**
@@ -140,6 +175,9 @@ public class FieldNamedPreparedStatementImpl implements FieldNamedPreparedStatem
 
     @Override
     public void setNull(int fieldIndex, int sqlType) throws SQLException {
+        if (isDelete) {
+            return;
+        }
         for (int index : indexMapping[fieldIndex]) {
             statement.setNull(index, sqlType);
         }
@@ -238,6 +276,9 @@ public class FieldNamedPreparedStatementImpl implements FieldNamedPreparedStatem
 
     @Override
     public void setObject(int fieldIndex, Object x) throws SQLException {
+        if (x == null && isDelete) {
+            return;
+        }
         for (int index : indexMapping[fieldIndex]) {
             statement.setObject(index, x);
         }
@@ -267,7 +308,23 @@ public class FieldNamedPreparedStatementImpl implements FieldNamedPreparedStatem
     }
 
     @Override
+    public boolean isDelete() {
+        return isDelete;
+    }
+
+    @Override
     public void close() throws SQLException {
         statement.close();
+    }
+
+    @Override
+    public void reOpen(Connection connection) throws SQLException {
+        statement = null;
+        statement = connection.prepareStatement(parsedSQL);
+    }
+
+    @Override
+    public Connection getConnection() throws SQLException {
+        return statement.getConnection();
     }
 }

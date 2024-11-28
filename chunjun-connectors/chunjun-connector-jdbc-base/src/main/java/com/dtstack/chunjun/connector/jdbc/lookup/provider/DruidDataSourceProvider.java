@@ -18,9 +18,8 @@
 
 package com.dtstack.chunjun.connector.jdbc.lookup.provider;
 
-import org.apache.flink.shaded.guava18.com.google.common.base.CaseFormat;
-
 import com.alibaba.druid.pool.DruidDataSource;
+import com.google.common.base.CaseFormat;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.jdbc.spi.DataSourceProvider;
 
@@ -29,11 +28,6 @@ import javax.sql.DataSource;
 import java.util.Map;
 import java.util.Properties;
 
-/**
- * @program chunjun
- * @author: wuren
- * @create: 2021/04/28
- */
 public class DruidDataSourceProvider implements DataSourceProvider {
 
     @Override

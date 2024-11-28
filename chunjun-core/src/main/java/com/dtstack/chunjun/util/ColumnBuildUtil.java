@@ -18,7 +18,8 @@
 
 package com.dtstack.chunjun.util;
 
-import com.dtstack.chunjun.conf.FieldConf;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.constants.ConstantValue;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 
@@ -28,11 +29,6 @@ import org.apache.commons.lang3.tuple.Pair;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author chuixue
- * @create 2021-07-05 14:54
- * @description
- */
 public class ColumnBuildUtil {
 
     /**
@@ -42,25 +38,25 @@ public class ColumnBuildUtil {
      * @param fullColumnList fullColumnList
      * @param fullColumnTypeList fullColumnTypeList
      */
-    public static Pair<List<String>, List<String>> handleColumnList(
-            List<FieldConf> fieldList,
+    public static Pair<List<String>, List<TypeConfig>> handleColumnList(
+            List<FieldConfig> fieldList,
             List<String> fullColumnList,
-            List<String> fullColumnTypeList) {
+            List<TypeConfig> fullColumnTypeList) {
         if (fieldList.size() == 1
                 && StringUtils.equals(ConstantValue.STAR_SYMBOL, fieldList.get(0).getName())) {
             return Pair.of(fullColumnList, fullColumnTypeList);
         }
 
         List<String> columnNameList = new ArrayList<>(fieldList.size());
-        List<String> columnTypeList = new ArrayList<>(fieldList.size());
+        List<TypeConfig> columnTypeList = new ArrayList<>(fieldList.size());
 
-        for (FieldConf fieldConf : fieldList) {
-            if (fieldConf.getValue() == null) {
+        for (FieldConfig fieldConfig : fieldList) {
+            if (fieldConfig.getValue() == null) {
                 boolean find = false;
-                String name = fieldConf.getName();
+                String name = fieldConfig.getName();
                 if (fullColumnList.size() == 0) {
                     columnNameList.add(name);
-                    columnTypeList.add(fieldConf.getType());
+                    columnTypeList.add(fieldConfig.getType());
                     find = true;
                 }
                 for (int i = 0; i < fullColumnList.size(); i++) {

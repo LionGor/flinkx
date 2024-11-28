@@ -18,58 +18,22 @@
 
 package com.dtstack.chunjun.connector.oraclelogminer.entity;
 
+import com.dtstack.chunjun.config.TypeConfig;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.ToString;
+
 import java.util.List;
 
-/**
- * Date: 2021/05/20 Company: www.dtstack.com
- *
- * @author dujie
- */
+@Getter
+@AllArgsConstructor
+@ToString
 public class TableMetaData {
 
     private final String SchemaName;
     private final String tableName;
     private final List<String> fieldList;
     /** field type * */
-    private final List<String> typeList;
-
-    public TableMetaData(
-            String schemaName, String tableName, List<String> fieldList, List<String> typeList) {
-        SchemaName = schemaName;
-        this.tableName = tableName;
-        this.fieldList = fieldList;
-        this.typeList = typeList;
-    }
-
-    public String getSchemaName() {
-        return SchemaName;
-    }
-
-    public String getTableName() {
-        return tableName;
-    }
-
-    public List<String> getFieldList() {
-        return fieldList;
-    }
-
-    public List<String> getTypeList() {
-        return typeList;
-    }
-
-    @Override
-    public String toString() {
-        return "TableMetaData{"
-                + "SchemaName='"
-                + SchemaName
-                + '\''
-                + ", tableName='"
-                + tableName
-                + '\''
-                + ", columns="
-                + fieldList
-                + ", types="
-                + typeList
-                + '}';
-    }
+    private final List<TypeConfig> typeList;
 }

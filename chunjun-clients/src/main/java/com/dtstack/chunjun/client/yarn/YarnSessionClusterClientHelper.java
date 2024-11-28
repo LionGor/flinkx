@@ -29,18 +29,18 @@ import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
+import org.apache.flink.runtime.security.SecurityConfiguration;
+import org.apache.flink.runtime.security.SecurityUtils;
 import org.apache.flink.yarn.YarnClientYarnClusterInformationRetriever;
 import org.apache.flink.yarn.YarnClusterDescriptor;
 
-import org.apache.commons.lang.StringUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.client.api.YarnClient;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.util.ConverterUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -50,17 +50,11 @@ import java.util.Set;
 import static org.apache.flink.yarn.configuration.YarnConfigOptions.APPLICATION_ID;
 import static org.apache.flink.yarn.configuration.YarnConfigOptions.APPLICATION_QUEUE;
 
-/**
- * @program chunjun
- * @author: xiuzhu
- * @create: 2021/05/31
- */
-public class YarnSessionClusterClientHelper implements ClusterClientHelper {
-
-    private static final Logger LOG = LoggerFactory.getLogger(YarnSessionClusterClientHelper.class);
+@Slf4j
+public class YarnSessionClusterClientHelper implements ClusterClientHelper<ApplicationId> {
 
     @Override
-    public ClusterClient submit(JobDeployer jobDeployer) throws Exception {
+    public ClusterClient<ApplicationId> submit(JobDeployer jobDeployer) throws Exception {
         Options launcherOptions = jobDeployer.getLauncherOptions();
         List<String> programArgs = jobDeployer.getProgramArgs();
 
@@ -68,50 +62,64 @@ public class YarnSessionClusterClientHelper implements ClusterClientHelper {
         String yarnConfDir = launcherOptions.getHadoopConfDir();
 
         try {
-            FileSystem.initialize(flinkConfig);
-
             YarnConfiguration yarnConf = YarnConfLoader.getYarnConf(yarnConfDir);
-            try (YarnClient yarnClient = YarnClient.createYarnClient()) {
-                yarnClient.init(yarnConf);
-                yarnClient.start();
-                ApplicationId applicationId;
 
-                if (StringUtils.isEmpty(flinkConfig.get(APPLICATION_ID))) {
-                    applicationId = getAppIdFromYarn(yarnClient, flinkConfig);
-                    if (applicationId == null || StringUtils.isEmpty(applicationId.toString())) {
-                        throw new RuntimeException("No flink session found on yarn cluster.");
-                    }
-                } else {
-                    applicationId = ConverterUtils.toApplicationId(flinkConfig.get(APPLICATION_ID));
-                }
+            SecurityUtils.install(new SecurityConfiguration(flinkConfig));
+            return SecurityUtils.getInstalledContext()
+                    .runSecured(
+                            () -> {
+                                FileSystem.initialize(flinkConfig, null);
+                                try (YarnClient yarnClient = YarnClient.createYarnClient()) {
+                                    yarnClient.init(yarnConf);
+                                    yarnClient.start();
+                                    ApplicationId applicationId;
 
-                HighAvailabilityMode highAvailabilityMode =
-                        HighAvailabilityMode.fromConfig(flinkConfig);
-                if (highAvailabilityMode.equals(HighAvailabilityMode.ZOOKEEPER)
-                        && applicationId != null) {
-                    flinkConfig.setString(
-                            HighAvailabilityOptions.HA_CLUSTER_ID, applicationId.toString());
-                }
-                try (YarnClusterDescriptor yarnClusterDescriptor =
-                        new YarnClusterDescriptor(
-                                flinkConfig,
-                                yarnConf,
-                                yarnClient,
-                                YarnClientYarnClusterInformationRetriever.create(yarnClient),
-                                true)) {
-                    ClusterClient clusterClient =
-                            yarnClusterDescriptor.retrieve(applicationId).getClusterClient();
-                    JobGraph jobGraph =
-                            JobGraphUtil.buildJobGraph(
-                                    launcherOptions, programArgs.toArray(new String[0]));
-                    jobGraph.getClasspaths().clear();
-                    jobGraph.getUserJars().clear();
-                    jobGraph.getUserArtifacts().clear();
-                    JobID jobID = (JobID) clusterClient.submitJob(jobGraph).get();
-                    LOG.info("submit job successfully, jobID = {}", jobID);
-                    return clusterClient;
-                }
-            }
+                                    if (StringUtils.isEmpty(flinkConfig.get(APPLICATION_ID))) {
+                                        applicationId = getAppIdFromYarn(yarnClient, flinkConfig);
+                                        if (applicationId == null
+                                                || StringUtils.isEmpty(applicationId.toString())) {
+                                            throw new RuntimeException(
+                                                    "No flink session found on yarn cluster.");
+                                        }
+                                    } else {
+                                        applicationId =
+                                                ApplicationId.fromString(
+                                                        flinkConfig.get(APPLICATION_ID));
+                                    }
+
+                                    HighAvailabilityMode highAvailabilityMode =
+                                            HighAvailabilityMode.fromConfig(flinkConfig);
+                                    if (highAvailabilityMode.equals(HighAvailabilityMode.ZOOKEEPER)
+                                            && applicationId != null) {
+                                        flinkConfig.setString(
+                                                HighAvailabilityOptions.HA_CLUSTER_ID,
+                                                applicationId.toString());
+                                    }
+                                    try (YarnClusterDescriptor yarnClusterDescriptor =
+                                            new YarnClusterDescriptor(
+                                                    flinkConfig,
+                                                    yarnConf,
+                                                    yarnClient,
+                                                    YarnClientYarnClusterInformationRetriever
+                                                            .create(yarnClient),
+                                                    true)) {
+                                        ClusterClient<ApplicationId> clusterClient =
+                                                yarnClusterDescriptor
+                                                        .retrieve(applicationId)
+                                                        .getClusterClient();
+                                        JobGraph jobGraph =
+                                                JobGraphUtil.buildJobGraph(
+                                                        launcherOptions,
+                                                        programArgs.toArray(new String[0]));
+                                        jobGraph.getClasspaths().clear();
+                                        jobGraph.getUserJars().clear();
+                                        jobGraph.getUserArtifacts().clear();
+                                        JobID jobID = clusterClient.submitJob(jobGraph).get();
+                                        log.info("submit job successfully, jobID = {}", jobID);
+                                        return clusterClient;
+                                    }
+                                }
+                            });
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -126,7 +134,7 @@ public class YarnSessionClusterClientHelper implements ClusterClientHelper {
         List<ApplicationReport> reportList = yarnClient.getApplications(set, enumSet);
 
         ApplicationId applicationId = null;
-        int maxMemory = -1;
+        long maxMemory = -1;
         int maxCores = -1;
         for (ApplicationReport report : reportList) {
             if (!report.getName().startsWith("Flink session")) {
@@ -141,8 +149,8 @@ public class YarnSessionClusterClientHelper implements ClusterClientHelper {
                 continue;
             }
 
-            int thisMemory =
-                    report.getApplicationResourceUsageReport().getNeededResources().getMemory();
+            long thisMemory =
+                    report.getApplicationResourceUsageReport().getNeededResources().getMemorySize();
             int thisCores =
                     report.getApplicationResourceUsageReport()
                             .getNeededResources()

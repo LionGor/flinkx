@@ -23,45 +23,67 @@ import com.dtstack.chunjun.options.Options;
 import com.dtstack.chunjun.util.PropertiesUtil;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.table.api.config.TableConfigOptions;
 
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.net.URL;
+import java.util.List;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
-/**
- * @program chunjun
- * @author: wuren
- * @create: 2021/08/04
- */
 public class EnvFactory {
 
-    /**
-     * 创建StreamExecutionEnvironment
-     *
-     * @param options
-     * @return
-     */
     public static StreamExecutionEnvironment createStreamExecutionEnvironment(Options options) {
         Configuration flinkConf = new Configuration();
         Configuration cfg = Configuration.fromMap(PropertiesUtil.confToMap(options.getConfProp()));
+        if (options.getSqlSetConfiguration() != null) {
+            cfg.addAll(options.getSqlSetConfiguration());
+        }
         if (StringUtils.isNotEmpty(options.getFlinkConfDir())) {
             flinkConf = GlobalConfiguration.loadConfiguration(options.getFlinkConfDir());
         }
         StreamExecutionEnvironment env;
-        if (StringUtils.equalsIgnoreCase(ClusterMode.local.name(), options.getMode())) {
+        if (StringUtils.equalsIgnoreCase(ClusterMode.localTest.name(), options.getMode())) {
             flinkConf.addAll(cfg);
             env = new MyLocalStreamEnvironment(flinkConf);
         } else {
             env = StreamExecutionEnvironment.getExecutionEnvironment(cfg);
+            // 如果没有配置默认的并行度，那么ChunJun 默认设置并行度为1
+            if (!cfg.contains(CoreOptions.DEFAULT_PARALLELISM)) {
+                env.setParallelism(1);
+            }
         }
         env.getConfig().disableClosureCleaner();
         env.getConfig().setGlobalJobParameters(cfg);
         return env;
+    }
+
+    public static void registerPluginIntoEnv(Configuration configuration, List<URL> pluginPaths) {
+        List<String> jars =
+                CollectionUtils.isEmpty(configuration.get(PipelineOptions.JARS))
+                        ? Lists.newArrayList()
+                        : configuration.get(PipelineOptions.JARS);
+        List<String> classpath =
+                CollectionUtils.isEmpty(configuration.get(PipelineOptions.CLASSPATHS))
+                        ? Lists.newArrayList()
+                        : configuration.get(PipelineOptions.JARS);
+
+        jars.addAll(pluginPaths.stream().map(URL::toString).collect(Collectors.toList()));
+        configuration.set(
+                PipelineOptions.JARS, jars.stream().distinct().collect(Collectors.toList()));
+
+        classpath.addAll(pluginPaths.stream().map(URL::toString).collect(Collectors.toList()));
+        configuration.set(
+                PipelineOptions.CLASSPATHS,
+                classpath.stream().distinct().collect(Collectors.toList()));
     }
 
     public static StreamTableEnvironment createStreamTableEnvironment(

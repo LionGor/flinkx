@@ -18,20 +18,31 @@
 
 package com.dtstack.chunjun.connector.mysql.dialect;
 
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.jdbc.conf.TableIdentify;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
+import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
 import com.dtstack.chunjun.connector.mysql.converter.MysqlRawTypeConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.connector.mysql.converter.MysqlSqlConverter;
+import com.dtstack.chunjun.converter.AbstractRowConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.RowType;
+
+import io.vertx.core.json.JsonArray;
+
+import java.sql.ResultSet;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * @program: ChunJun
- * @author: wuren
- * @create: 2021/03/17
- */
 public class MysqlDialect implements JdbcDialect {
+
+    private static final long serialVersionUID = 4607084579671405838L;
 
     @Override
     public String dialectName() {
@@ -44,7 +55,7 @@ public class MysqlDialect implements JdbcDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeConverter() {
         return MysqlRawTypeConverter::apply;
     }
 
@@ -56,6 +67,17 @@ public class MysqlDialect implements JdbcDialect {
     @Override
     public String quoteIdentifier(String identifier) {
         return "`" + identifier + "`";
+    }
+
+    @Override
+    public boolean supportUpsert() {
+        return true;
+    }
+
+    @Override
+    public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
+            getRowConverter(RowType rowType) {
+        return new MysqlSqlConverter(rowType);
     }
 
     /**
@@ -116,5 +138,32 @@ public class MysqlDialect implements JdbcDialect {
                         + " VALUES ("
                         + placeholders
                         + ")");
+    }
+
+    @Override
+    public TableIdentify getTableIdentify(String confSchema, String confTable) {
+        return new TableIdentify(confSchema, null, confTable, this::quoteIdentifier, false);
+    }
+
+    public Function<Tuple3<String, Integer, Integer>, TypeConfig> typeBuilder() {
+        return (typePsTuple -> {
+            String columnTypeName = typePsTuple.f0;
+            int precision = typePsTuple.f1;
+            int scale = typePsTuple.f2;
+            if ((columnTypeName.toUpperCase(Locale.ENGLISH).contains("TIMESTAMP")
+                            || columnTypeName.toUpperCase(Locale.ENGLISH).contains("DATETIME"))
+                    && precision > 19) {
+                // "." 还占一个字符长度，需要去掉.
+                scale = precision - 19 - 1;
+            } else if (columnTypeName.toUpperCase(Locale.ENGLISH).equals("TIME")
+                    && precision > 10) {
+                // "." 还占一个字符长度，需要去掉.
+                scale = precision - 10 - 1;
+            }
+            TypeConfig typeConfig = TypeConfig.fromString(columnTypeName);
+            typeConfig.setPrecision(precision);
+            typeConfig.setScale(scale);
+            return typeConfig;
+        });
     }
 }

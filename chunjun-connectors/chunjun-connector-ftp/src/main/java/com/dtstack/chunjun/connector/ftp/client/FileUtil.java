@@ -18,63 +18,10 @@
 
 package com.dtstack.chunjun.connector.ftp.client;
 
-import com.dtstack.chunjun.connector.ftp.conf.FtpConfig;
-import com.dtstack.chunjun.connector.ftp.handler.FtpHandler;
-import com.dtstack.chunjun.connector.ftp.handler.FtpHandlerFactory;
-import com.dtstack.chunjun.connector.ftp.handler.IFtpHandler;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.nio.charset.Charset;
-import java.util.List;
-import java.util.Locale;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
-
 public class FileUtil {
-    private static final Logger LOG = LoggerFactory.getLogger(FileUtil.class);
 
-    public static void addFile(
-            IFtpHandler ftpHandler, String filePath, FtpConfig ftpConfig, List<File> fileList)
-            throws IOException {
-        switch (ftpConfig.getCompressType().toUpperCase(Locale.ENGLISH)) {
-            case "ZIP":
-                try (java.util.zip.ZipInputStream zipInputStream =
-                        new ZipInputStream(
-                                ftpHandler.getInputStream(filePath),
-                                Charset.forName(ftpConfig.encoding))) {
-                    ZipEntry zipEntry;
-                    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                        fileList.add(
-                                new File(
-                                        filePath,
-                                        filePath + "/" + zipEntry.getName(),
-                                        zipEntry.getName(),
-                                        ftpConfig.getCompressType()));
-                    }
-                    if (ftpHandler instanceof FtpHandler) {
-                        try {
-                            ((FtpHandler) ftpHandler).getFtpClient().completePendingCommand();
-                        } catch (Exception e) {
-                            // 如果出现了超时异常，就直接获取一个新的ftpHandler
-                            LOG.warn("FTPClient completePendingCommand has error ->", e);
-                            try {
-                                ftpHandler.logoutFtpServer();
-                            } catch (Exception exception) {
-                                LOG.warn("FTPClient logout has error ->", exception);
-                            }
-                            ftpHandler =
-                                    FtpHandlerFactory.createFtpHandler(ftpConfig.getProtocol());
-                            ftpHandler.loginFtpServer(ftpConfig);
-                        }
-                    }
-                }
-                break;
-            default:
-                throw new RuntimeException(
-                        "not support compressType " + ftpConfig.getCompressType());
-        }
+    public static String getFilename(String filepath) {
+        String[] paths = filepath.split("/");
+        return paths[paths.length - 1];
     }
 }

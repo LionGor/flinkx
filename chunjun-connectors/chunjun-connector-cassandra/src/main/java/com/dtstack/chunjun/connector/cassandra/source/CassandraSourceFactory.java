@@ -18,12 +18,12 @@
 
 package com.dtstack.chunjun.connector.cassandra.source;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.cassandra.conf.CassandraSourceConf;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.cassandra.config.CassandraSourceConfig;
 import com.dtstack.chunjun.connector.cassandra.converter.CassandraRawTypeConverter;
-import com.dtstack.chunjun.connector.cassandra.converter.CassandraRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.connector.cassandra.converter.CassandraSqlConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.JsonUtil;
 import com.dtstack.chunjun.util.TableUtil;
@@ -36,27 +36,23 @@ import org.apache.flink.table.types.logical.RowType;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author tiezhu
- * @since 2021/6/21 星期一
- */
 public class CassandraSourceFactory extends SourceFactory {
 
-    private final CassandraSourceConf sourceConf;
+    private final CassandraSourceConfig sourceConfig;
 
-    public CassandraSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
-        super(syncConf, env);
+    public CassandraSourceFactory(SyncConfig syncConfig, StreamExecutionEnvironment env) {
+        super(syncConfig, env);
 
-        sourceConf =
+        sourceConfig =
                 JsonUtil.toObject(
-                        JsonUtil.toJson(syncConf.getReader().getParameter()),
-                        CassandraSourceConf.class);
-        sourceConf.setColumn(syncConf.getReader().getFieldList());
-        super.initCommonConf(sourceConf);
+                        JsonUtil.toJson(syncConfig.getReader().getParameter()),
+                        CassandraSourceConfig.class);
+        sourceConfig.setColumn(syncConfig.getReader().getFieldList());
+        super.initCommonConf(sourceConfig);
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return CassandraRawTypeConverter::apply;
     }
 
@@ -64,15 +60,15 @@ public class CassandraSourceFactory extends SourceFactory {
     public DataStream<RowData> createSource() {
         CassandraInputFormatBuilder builder = new CassandraInputFormatBuilder();
 
-        builder.setSourceConf(sourceConf);
+        builder.setSourceConf(sourceConfig);
 
-        List<FieldConf> fieldConfList = sourceConf.getColumn();
+        List<FieldConfig> fieldConfList = sourceConfig.getColumn();
         List<String> columnNameList = new ArrayList<>();
-        fieldConfList.forEach(fieldConf -> columnNameList.add(fieldConf.getName()));
+        fieldConfList.forEach(fieldConfig -> columnNameList.add(fieldConfig.getName()));
 
-        final RowType rowType = TableUtil.createRowType(fieldConfList, getRawTypeConverter());
+        final RowType rowType = TableUtil.createRowType(fieldConfList, getRawTypeMapper());
         builder.setRowConverter(
-                new CassandraRowConverter(rowType, columnNameList), useAbstractBaseColumn);
+                new CassandraSqlConverter(rowType, columnNameList), useAbstractBaseColumn);
 
         return createInput(builder.finish());
     }

@@ -1,10 +1,29 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.dtstack.chunjun.connector.influxdb.sink;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.connector.influxdb.conf.InfluxdbSinkConfig;
-import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbColumnConverter;
-import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbRawTypeConverter;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.connector.influxdb.config.InfluxdbSinkConfig;
+import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbRawTypeMapper;
+import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbSyncConverter;
 import com.dtstack.chunjun.connector.influxdb.enums.TimePrecisionEnums;
+import com.dtstack.chunjun.constants.Metrics;
 import com.dtstack.chunjun.sink.format.BaseRichOutputFormat;
 import com.dtstack.chunjun.throwable.WriteRecordException;
 import com.dtstack.chunjun.util.ExceptionUtil;
@@ -14,34 +33,27 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.util.StringUtils;
 
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import org.influxdb.BatchOptions;
 import org.influxdb.InfluxDB;
 import org.influxdb.dto.BatchPoints;
 import org.influxdb.dto.Point;
 import org.influxdb.impl.InfluxDBImpl;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-/** @Author xirang @Company Dtstack @Date: 2022/3/14 2:57 PM */
+@Slf4j
 public class InfluxdbOutputFormat extends BaseRichOutputFormat {
 
-    private static final Logger LOG = LoggerFactory.getLogger(InfluxdbOutputFormat.class);
+    private static final long serialVersionUID = -3677021871315224915L;
 
     private InfluxdbSinkConfig sinkConfig;
 
     private InfluxDB influxDB;
-
-    private List<String> tags;
-
-    private String timestamp;
 
     private String database;
 
@@ -76,32 +88,32 @@ public class InfluxdbOutputFormat extends BaseRichOutputFormat {
     }
 
     @Override
-    protected void openInternal(int taskNumber, int numTasks) throws IOException {
-        this.timestamp = sinkConfig.getTimestamp();
+    protected void openInternal(int taskNumber, int numTasks) {
+        String timestamp = sinkConfig.getTimestamp();
         this.precision = TimePrecisionEnums.of(sinkConfig.getPrecision()).getPrecision();
-        this.tags = sinkConfig.getTags();
-        establishConnnection();
+        List<String> tags = sinkConfig.getTags();
+        establishConnection();
         influxDB.setDatabase(database);
-        List<FieldConf> column = sinkConfig.getColumn();
-        columnNameList = column.stream().map(FieldConf::getName).collect(Collectors.toList());
-        columnTypeList = column.stream().map(FieldConf::getType).collect(Collectors.toList());
+        List<FieldConfig> column = sinkConfig.getColumn();
+        columnNameList = column.stream().map(FieldConfig::getName).collect(Collectors.toList());
+        columnTypeList = column.stream().map(FieldConfig::getType).collect(Collectors.toList());
         RowType rowType =
                 TableUtil.createRowType(
-                        columnNameList, columnTypeList, InfluxdbRawTypeConverter::apply);
+                        columnNameList, columnTypeList, InfluxdbRawTypeMapper::apply);
         setRowConverter(
-                new InfluxdbColumnConverter(
+                new InfluxdbSyncConverter(
                         rowType, sinkConfig, columnNameList, tags, timestamp, precision));
     }
 
     @Override
-    protected void closeInternal() throws IOException {
+    protected void closeInternal() {
         if (enableBatch) influxDB.disableBatch();
         if (influxDB != null) Runtime.getRuntime().addShutdownHook(new Thread(influxDB::close));
     }
 
-    private void establishConnnection() {
+    private void establishConnection() {
         if (influxDB != null) return;
-        LOG.info("Get the connection for influxdb");
+        log.info("Get the connection for influxdb");
         OkHttpClient.Builder clientBuilder =
                 new OkHttpClient.Builder()
                         .connectTimeout(15000, TimeUnit.MILLISECONDS)
@@ -123,12 +135,14 @@ public class InfluxdbOutputFormat extends BaseRichOutputFormat {
             options =
                     options.exceptionHandler(
                                     (iterable, e) -> {
-                                        Iterator<Point> iterator = iterable.iterator();
-                                        while (iterator.hasNext()) {
-                                            dirtyManager.collect(iterator.next(), e, null);
+                                        for (Point point : iterable) {
+                                            long globalErrors =
+                                                    accumulatorCollector.getAccumulatorValue(
+                                                            Metrics.NUM_ERRORS, false);
+                                            dirtyManager.collect(point, e, null, globalErrors);
                                         }
-                                        if (LOG.isTraceEnabled()) {
-                                            LOG.trace(
+                                        if (log.isTraceEnabled()) {
+                                            log.trace(
                                                     "write data error, e = {}",
                                                     ExceptionUtil.getErrorMessage(e));
                                         }

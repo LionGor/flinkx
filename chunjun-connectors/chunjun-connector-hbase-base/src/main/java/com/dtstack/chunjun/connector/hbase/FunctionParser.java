@@ -17,23 +17,20 @@
  */
 package com.dtstack.chunjun.connector.hbase;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author jiangbo
- * @date 2019/7/24
- */
 public class FunctionParser {
 
     private static final String COL_REGEX = "\\$\\([^\\(\\)]+?\\)";
     private static final Pattern COL_PATTERN = Pattern.compile(COL_REGEX);
 
     private static final String LEFT_KUO = "(";
+    private static final String RIGHT_KUO = ")";
     private static final String DELIM = "_";
 
     public static List<String> parseRowKeyCol(String express) {
@@ -41,7 +38,6 @@ public class FunctionParser {
         Matcher matcher = COL_PATTERN.matcher(express);
         while (matcher.find()) {
             String colExpre = matcher.group();
-            String RIGHT_KUO = ")";
             String col =
                     colExpre.substring(colExpre.indexOf(LEFT_KUO) + 1, colExpre.indexOf(RIGHT_KUO));
             columnNames.add(col);
@@ -51,11 +47,7 @@ public class FunctionParser {
     }
 
     public static FunctionTree parse(String express) {
-        if (StringUtils.isEmpty(express)) {
-            throw new RuntimeException("Row key column express can not be null");
-        }
-
-        if (StringUtils.isEmpty(express.trim())) {
+        if (StringUtils.isEmpty(express) || StringUtils.isEmpty(express.trim())) {
             throw new RuntimeException("Row key column express can not be empty");
         }
 
@@ -110,7 +102,7 @@ public class FunctionParser {
             }
 
             FunctionTree child = new FunctionTree();
-            child.setFunction(FunctionFactory.createFuntion(splits[splits.length - 1]));
+            child.setFunction(FunctionFactory.createFunction(splits[splits.length - 1]));
             root.addInputFunction(child);
 
             String subExpress = express.substring(leftBracketsIndex + 1, rightBracketsIndex);
@@ -175,5 +167,16 @@ public class FunctionParser {
         }
 
         return express;
+    }
+
+    public static List<String> getRegexColumnName(String qualifier) {
+        Matcher matcher = COL_PATTERN.matcher(qualifier);
+        ArrayList<String> columnQualifier = new ArrayList<>();
+        while (matcher.find()) {
+            String columnGroup = matcher.group();
+            String column = columnGroup.substring(2, columnGroup.length() - 1);
+            columnQualifier.add(column);
+        }
+        return columnQualifier;
     }
 }

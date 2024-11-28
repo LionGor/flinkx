@@ -18,34 +18,48 @@
 
 package com.dtstack.chunjun.connector.clickhouse.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.connector.clickhouse.dialect.ClickhouseDialect;
+import com.dtstack.chunjun.connector.clickhouse.util.ClickhouseUtil;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcSourceFactory;
+import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * @program: ChunJun
- * @author: xiuzhu
- * @create: 2021/05/10
- */
+import java.sql.Connection;
+import java.sql.SQLException;
+
 public class ClickhouseSourceFactory extends JdbcSourceFactory {
 
-    public ClickhouseSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
-        super(syncConf, env, new ClickhouseDialect());
+    public ClickhouseSourceFactory(SyncConfig syncConfig, StreamExecutionEnvironment env) {
+        super(syncConfig, env, new ClickhouseDialect());
         // 避免result.next阻塞
-        if (jdbcConf.isPolling()
-                && StringUtils.isEmpty(jdbcConf.getStartLocation())
-                && jdbcConf.getFetchSize() == 0) {
-            jdbcConf.setFetchSize(1000);
+        if (jdbcConfig.isPolling()
+                && StringUtils.isEmpty(jdbcConfig.getStartLocation())
+                && jdbcConfig.getFetchSize() == 0) {
+            jdbcConfig.setFetchSize(1000);
         }
     }
 
     @Override
     protected JdbcInputFormatBuilder getBuilder() {
         return new ClickhouseInputFormatBuilder(new ClickhouseInputFormat());
+    }
+
+    @Override
+    protected Connection getConn() {
+        try {
+            return ClickhouseUtil.getConnection(
+                    jdbcConfig.getJdbcUrl(), jdbcConfig.getUsername(), jdbcConfig.getPassword());
+        } catch (SQLException e) {
+            throw new ChunJunRuntimeException(
+                    String.format(
+                            "failed to get clickhouse jdbc connection,jdbcUrl=%s",
+                            jdbcConfig.getJdbcUrl()),
+                    e);
+        }
     }
 }

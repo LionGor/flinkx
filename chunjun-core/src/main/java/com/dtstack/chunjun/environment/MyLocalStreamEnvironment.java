@@ -18,9 +18,9 @@
 
 package com.dtstack.chunjun.environment;
 
-import org.apache.flink.annotation.Public;
 import org.apache.flink.api.common.InvalidProgramException;
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
@@ -33,11 +33,13 @@ import org.apache.flink.runtime.minicluster.MiniClusterConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
 
 import javax.annotation.Nonnull;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.util.Collections;
 import java.util.List;
@@ -51,27 +53,13 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  *
  * <p>When this environment is instantiated, it uses a default parallelism of {@code 1}. The default
  * parallelism can be set via {@link #setParallelism(int)}.
- *
- * @author jiangbo
  */
-@Public
+@Slf4j
 public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
-
-    private static final Logger LOG =
-            LoggerFactory.getLogger(
-                    org.apache.flink.streaming.api.environment.LocalStreamEnvironment.class);
 
     private final Configuration configuration;
 
-    public List<URL> getClasspaths() {
-        return classpaths;
-    }
-
-    public void setClasspaths(List<URL> classpaths) {
-        this.classpaths = classpaths;
-    }
-
-    private List<URL> classpaths = Collections.emptyList();
+    private final List<URL> classpath = Collections.emptyList();
 
     private SavepointRestoreSettings settings;
 
@@ -98,7 +86,7 @@ public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
                             + "or running in a TestEnvironment context.");
         }
         this.configuration = configuration;
-        setParallelism(1);
+        this.setParallelism(1);
     }
 
     private static Configuration validateAndGetConfiguration(final Configuration configuration) {
@@ -113,8 +101,24 @@ public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
         return effectiveConfiguration;
     }
 
+    private void clearFlinkLocalDistributedCache(JobGraph jobGraph) throws IOException {
+        File osTmpDir = new File(System.getProperty("java.io.tmpdir"));
+        JobID jobID = jobGraph.getJobID();
+        File[] flinkTmpDirs =
+                osTmpDir.listFiles(
+                        (dir, name) -> name.startsWith("flink-distributed-cache-" + jobID));
+
+        if (flinkTmpDirs != null) {
+            for (File flinkTmpDir : flinkTmpDirs) {
+                if (flinkTmpDir.exists() && flinkTmpDir.isDirectory()) {
+                    FileUtils.deleteDirectory(flinkTmpDir);
+                }
+            }
+        }
+    }
+
     @Override
-    protected Configuration getConfiguration() {
+    public Configuration getConfiguration() {
         return configuration;
     }
 
@@ -131,7 +135,7 @@ public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
         streamGraph.setJobName(jobName);
 
         JobGraph jobGraph = streamGraph.getJobGraph();
-        jobGraph.setClasspaths(classpaths);
+        jobGraph.setClasspaths(classpath);
 
         if (settings != null) {
             jobGraph.setSavepointRestoreSettings(settings);
@@ -160,13 +164,11 @@ public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
                         .setNumSlotsPerTaskManager(numSlotsPerTaskManager)
                         .build();
 
-        if (LOG.isInfoEnabled()) {
-            LOG.info("Running job on local embedded Flink mini cluster");
+        if (log.isInfoEnabled()) {
+            log.info("Running job on local embedded Flink mini cluster");
         }
 
-        MiniCluster miniCluster = new MiniCluster(cfg);
-
-        try {
+        try (MiniCluster miniCluster = new MiniCluster(cfg)) {
             miniCluster.start();
             configuration.setInteger(
                     RestOptions.PORT, miniCluster.getRestAddress().get().getPort());
@@ -174,7 +176,7 @@ public class MyLocalStreamEnvironment extends StreamExecutionEnvironment {
             return miniCluster.executeJobBlocking(jobGraph);
         } finally {
             transformations.clear();
-            miniCluster.close();
+            clearFlinkLocalDistributedCache(jobGraph);
         }
     }
 }

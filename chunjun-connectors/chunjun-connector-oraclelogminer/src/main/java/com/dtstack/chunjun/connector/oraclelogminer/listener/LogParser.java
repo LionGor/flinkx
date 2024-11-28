@@ -18,16 +18,16 @@
 
 package com.dtstack.chunjun.connector.oraclelogminer.listener;
 
-import com.dtstack.chunjun.connector.oraclelogminer.conf.LogMinerConf;
 import com.dtstack.chunjun.connector.oraclelogminer.entity.EventRow;
 import com.dtstack.chunjun.connector.oraclelogminer.entity.EventRowData;
 import com.dtstack.chunjun.connector.oraclelogminer.entity.QueueData;
-import com.dtstack.chunjun.converter.AbstractCDCRowConverter;
+import com.dtstack.chunjun.converter.AbstractCDCRawTypeMapper;
 import com.dtstack.chunjun.element.ColumnRowData;
 import com.dtstack.chunjun.util.SnowflakeIdWorker;
 
 import org.apache.flink.table.data.RowData;
 
+import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
@@ -40,8 +40,8 @@ import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.update.Update;
 import org.apache.commons.codec.binary.Hex;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -53,21 +53,10 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * @author jiangbo
- * @date 2020/3/30
- */
+@Slf4j
 public class LogParser {
 
-    public static Logger LOG = LoggerFactory.getLogger(LogParser.class);
-
     public static SnowflakeIdWorker idWorker = new SnowflakeIdWorker(1, 1);
-
-    private final LogMinerConf config;
-
-    public LogParser(LogMinerConf config) {
-        this.config = config;
-    }
 
     private static String cleanString(String str) {
         if ("NULL".equalsIgnoreCase(str)) {
@@ -146,10 +135,10 @@ public class LogParser {
                                 }
                             });
         } else {
-            LOG.error(
+            log.error(
                     "where is null when LogParser parse sqlRedo, sqlRedo = {}, update = {}",
                     sqlRedo,
-                    update.toString());
+                    update);
         }
     }
 
@@ -171,12 +160,6 @@ public class LogParser {
                         });
     }
 
-    /**
-     * parse time type data
-     *
-     * @param value
-     * @return
-     */
     public static String parseTime(String value) {
         if (!value.endsWith("')")) {
             return value;
@@ -204,6 +187,25 @@ public class LogParser {
         return value;
     }
 
+    public static String decodeUnicode(String dataStr) {
+        int start = dataStr.indexOf("\\");
+        int end = 0;
+        final StringBuilder buffer = new StringBuilder(dataStr.substring(0, start));
+        while (start > -1) {
+            end = dataStr.indexOf("\\", start + 1);
+            String charStr = "";
+            if (end == -1) {
+                charStr = dataStr.substring(start + 1, dataStr.length());
+            } else {
+                charStr = dataStr.substring(start + 1, end);
+            }
+            char letter = (char) Integer.parseInt(charStr, 16); // 16进制parse整形字符串。
+            buffer.append(letter);
+            start = end;
+        }
+        return new String(buffer.toString().getBytes(), StandardCharsets.UTF_8);
+    }
+
     public static String parseString(String value) {
         if (!value.endsWith("')")) {
             return value;
@@ -215,6 +217,18 @@ public class LogParser {
                 return new String(
                         Hex.decodeHex(value.substring(10, value.length() - 2).toCharArray()),
                         StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                throw new RuntimeException("parse value [" + value + " ] failed ", e);
+            }
+        } else if (value.startsWith("UNISTR('")) {
+            try {
+                String valueSub = value.substring(8, value.length() - 2);
+                if (StringUtils.isNotEmpty(valueSub)) {
+                    return decodeUnicode(valueSub);
+                } else {
+                    return "";
+                }
+
             } catch (Exception e) {
                 throw new RuntimeException("parse value [" + value + " ] failed ", e);
             }
@@ -230,25 +244,32 @@ public class LogParser {
             return value.substring(15, value.length() - 2);
         }
 
+        // support nchar、nvarchar2 chinese value
+        if (value.startsWith("UNISTR('") && value.endsWith("')")) {
+            String substring = value.substring(8, value.length() - 2);
+            String replace = substring.replace("\\", "\\u");
+            return StringEscapeUtils.unescapeJava(replace);
+        }
+
         return value;
     }
 
-    public LinkedList<RowData> parse(QueueData pair, AbstractCDCRowConverter rowConverter)
+    public LinkedList<RowData> parse(QueueData pair, AbstractCDCRawTypeMapper rowConverter)
             throws Exception {
         ColumnRowData logData = (ColumnRowData) pair.getData();
 
-        String schema = logData.getField("schema").asString();
-        String tableName = logData.getField("tableName").asString();
-        String operation = logData.getField("operation").asString();
-        String sqlLog = logData.getField("sqlLog").asString();
+        String schema = Objects.requireNonNull(logData.getField("schema")).asString();
+        String tableName = Objects.requireNonNull(logData.getField("tableName")).asString();
+        String operation = Objects.requireNonNull(logData.getField("operation")).asString();
+        String sqlLog = Objects.requireNonNull(logData.getField("sqlLog")).asString();
         String sqlRedo = sqlLog.replace("IS NULL", "= NULL");
-        Timestamp timestamp = logData.getField("opTime").asTimestamp();
+        Timestamp timestamp = Objects.requireNonNull(logData.getField("opTime")).asTimestamp();
 
         Statement stmt;
         try {
             stmt = CCJSqlParserUtil.parse(sqlRedo);
         } catch (JSQLParserException e) {
-            LOG.info("sqlRedo = {}", sqlRedo);
+            log.info("sqlRedo = {}", sqlRedo);
             stmt = CCJSqlParserUtil.parse(sqlRedo.replace("\\'", "\\ '"));
         }
 
@@ -263,9 +284,9 @@ public class LogParser {
             parseDeleteStmt((Delete) stmt, EventRowDataList, afterEventRowDataList);
         }
 
-        Long ts = idWorker.nextId();
+        long ts = idWorker.nextId();
 
-        if (LOG.isDebugEnabled()) {
+        if (log.isDebugEnabled()) {
             printDelay(pair.getScn(), ts, timestamp);
         }
 
@@ -289,6 +310,6 @@ public class LogParser {
 
         long opTime = timestamp.getTime();
 
-        LOG.debug("scn {} ,delay {} ms", scn, res - opTime);
+        log.debug("scn {} ,delay {} ms", scn, res - opTime);
     }
 }

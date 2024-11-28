@@ -28,20 +28,11 @@ import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.yarn.configuration.YarnConfigOptions;
 
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.StringJoiner;
 
-/**
- * Date: 2021/03/18 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class Options {
-
-    private static final Logger LOG = LoggerFactory.getLogger(Options.class);
 
     @OptionRequired(description = "job type:sql or sync")
     private String jobType;
@@ -70,8 +61,11 @@ public class Options {
     @OptionRequired(description = "env properties")
     private String confProp = "{}";
 
-    @OptionRequired(description = "json modify")
+    @OptionRequired(description = "parameters in simple format")
     private String p = "";
+
+    @OptionRequired(description = "parameters in json format")
+    private String pj = "";
 
     @OptionRequired(description = "plugin load mode, by classpath or shipfile")
     private String pluginLoadMode = "shipfile";
@@ -85,7 +79,12 @@ public class Options {
     @OptionRequired(description = "file add to ship file")
     private String addShipfile;
 
+    @OptionRequired(description = "flink run mode")
+    private String runMode;
+
     private Configuration flinkConfiguration = null;
+
+    private Configuration sqlSetConfiguration = null;
 
     public Configuration loadFlinkConfiguration() {
         if (flinkConfiguration == null) {
@@ -106,8 +105,6 @@ public class Options {
                 flinkConfiguration.setString(CoreOptions.CLASSLOADER_RESOLVE_ORDER, "parent-first");
             }
             flinkConfiguration.setString(ConfigConstant.FLINK_PLUGIN_LOAD_MODE_KEY, pluginLoadMode);
-
-            flinkConfiguration.set(CoreOptions.CHECK_LEAKED_CLASSLOADER, false);
         }
         return flinkConfiguration;
     }
@@ -176,6 +173,14 @@ public class Options {
         this.p = p;
     }
 
+    public String getPj() {
+        return pj;
+    }
+
+    public void setPj(String pj) {
+        this.pj = pj;
+    }
+
     public String getPluginLoadMode() {
         return pluginLoadMode;
     }
@@ -224,6 +229,22 @@ public class Options {
         this.jobType = jobType;
     }
 
+    public String getRunMode() {
+        return runMode;
+    }
+
+    public void setRunMode(String runMode) {
+        this.runMode = runMode;
+    }
+
+    public Configuration getSqlSetConfiguration() {
+        return sqlSetConfiguration;
+    }
+
+    public void setSqlSetConfiguration(Configuration sqlSetConfiguration) {
+        this.sqlSetConfiguration = sqlSetConfiguration;
+    }
+
     @Override
     public String toString() {
         return new StringJoiner(", ", Options.class.getSimpleName() + "[", "]")
@@ -237,11 +258,14 @@ public class Options {
                 .add("flinkLibDir='" + flinkLibDir + "'")
                 .add("confProp='" + confProp + "'")
                 .add("p='" + p + "'")
+                .add("pj='" + pj + "'")
                 .add("pluginLoadMode='" + pluginLoadMode + "'")
                 .add("remoteChunJunDistDir='" + remoteChunJunDistDir + "'")
                 .add("addjar='" + addjar + "'")
                 .add("addShipfile='" + addShipfile + "'")
+                .add("runMode='" + runMode + "'")
                 .add("flinkConfiguration=" + flinkConfiguration)
+                .add("sqlSetConfiguration=" + sqlSetConfiguration)
                 .toString();
     }
 }

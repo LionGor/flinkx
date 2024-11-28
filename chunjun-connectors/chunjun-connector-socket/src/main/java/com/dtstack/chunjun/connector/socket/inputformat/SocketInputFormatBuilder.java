@@ -26,14 +26,7 @@ import com.dtstack.chunjun.util.ValueUtil;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * 构建InputFormat
- *
- * @author by kunni@dtstack.com
- */
 public class SocketInputFormatBuilder extends BaseRichInputFormatBuilder<SocketInputFormat> {
-
-    protected SocketInputFormat format;
 
     protected SocketConfig socketConfig;
 
@@ -55,8 +48,7 @@ public class SocketInputFormatBuilder extends BaseRichInputFormatBuilder<SocketI
             sb.append("config error:[address] cannot be blank \n");
         }
         String[] hostPort =
-                org.apache.commons.lang.StringUtils.split(
-                        socketConfig.getAddress(), ConstantValue.COLON_SYMBOL);
+                StringUtils.split(socketConfig.getAddress(), ConstantValue.COLON_SYMBOL);
         if (hostPort.length != ADDRESS_SPLITS) {
             sb.append("please check your host format \n");
         }

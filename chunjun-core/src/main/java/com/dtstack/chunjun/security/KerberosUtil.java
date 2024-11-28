@@ -21,18 +21,18 @@ package com.dtstack.chunjun.security;
 import com.dtstack.chunjun.constants.ConstantValue;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 import com.dtstack.chunjun.util.FileSystemUtil;
+import com.dtstack.chunjun.util.GsonUtil;
 import com.dtstack.chunjun.util.JsonUtil;
 import com.dtstack.chunjun.util.Md5Util;
 
 import org.apache.flink.api.common.cache.DistributedCache;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.util.KerberosName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import sun.security.krb5.Config;
 import sun.security.krb5.KrbException;
 import sun.security.krb5.internal.ktab.KeyTab;
@@ -42,21 +42,17 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.UUID;
 
-/**
- * @author jiangbo
- * @date 2019/8/20
- */
+@Slf4j
 public class KerberosUtil {
-
-    public static Logger LOG = LoggerFactory.getLogger(KerberosUtil.class);
 
     private static final String SP = "/";
 
     private static final String KEY_SFTP_CONF = "sftpConf";
-    private static final String KEY_PRINCIPAL = "principal";
-    private static final String KEY_REMOTE_DIR = "remoteDir";
-    private static final String KEY_USE_LOCAL_FILE = "useLocalFile";
+    public static final String KEY_PRINCIPAL = "principal";
+    public static final String KEY_REMOTE_DIR = "remoteDir";
+    public static final String KEY_USE_LOCAL_FILE = "useLocalFile";
     public static final String KEY_PRINCIPAL_FILE = "principalFile";
     private static final String KEY_JAVA_SECURITY_KRB5_CONF = "java.security.krb5.conf";
     public static final String KRB_STR = "Kerberos";
@@ -76,12 +72,13 @@ public class KerberosUtil {
         createDir(LOCAL_CACHE_DIR);
     }
 
-    public static UserGroupInformation loginAndReturnUgi(Map<String, Object> hadoopConfig) {
+    public static UserGroupInformation loginAndReturnUgi(
+            Map<String, Object> hadoopConfig, String jobId, String taskNumber) {
         String keytabFileName = KerberosUtil.getPrincipalFileName(hadoopConfig);
-        keytabFileName = KerberosUtil.loadFile(hadoopConfig, keytabFileName);
+        keytabFileName = KerberosUtil.loadFile(hadoopConfig, keytabFileName, jobId, taskNumber);
 
         String principal = KerberosUtil.getPrincipal(hadoopConfig, keytabFileName);
-        KerberosUtil.loadKrb5Conf(hadoopConfig, null);
+        KerberosUtil.loadKrb5Conf(hadoopConfig, null, jobId, taskNumber);
 
         Configuration conf = FileSystemUtil.getConfiguration(hadoopConfig, null);
 
@@ -92,7 +89,7 @@ public class KerberosUtil {
             throw new RuntimeException("Login kerberos error:", e);
         }
 
-        LOG.info("current ugi:{}", ugi);
+        log.info("current ugi:{}", ugi);
 
         return ugi;
     }
@@ -102,7 +99,7 @@ public class KerberosUtil {
         String principal = kerberosConfig.getPrincipal();
         String keytabPath = kerberosConfig.getKeytab();
         String krb5confPath = kerberosConfig.getKrb5conf();
-        LOG.info("Kerberos login with principal: {} and keytab: {}", principal, keytabPath);
+        log.info("Kerberos login with principal: {} and keytab: {}", principal, keytabPath);
         return loginAndReturnUgi(principal, keytabPath, krb5confPath);
     }
 
@@ -122,7 +119,7 @@ public class KerberosUtil {
         conf.set("hadoop.security.authentication", "Kerberos");
         UserGroupInformation.setConfiguration(conf);
 
-        LOG.info("login user:{} with keytab:{}", principal, keytab);
+        log.info("login user:{} with keytab:{}", principal, keytab);
         return UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
     }
 
@@ -142,7 +139,7 @@ public class KerberosUtil {
         Configuration conf = new Configuration();
         conf.set(HADOOP_AUTH_KEY, KRB_STR);
         UserGroupInformation.setConfiguration(conf);
-        LOG.info("login user:{} with keytab:{}", principal, keytab);
+        log.info("login user:{} with keytab:{}", principal, keytab);
         return UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
     }
 
@@ -157,32 +154,36 @@ public class KerberosUtil {
 
     public static synchronized void reloadKrb5conf(String krb5confPath) {
         System.setProperty(KRB5_CONF_KEY, krb5confPath);
-        LOG.info("set krb5 file:{}", krb5confPath);
+        log.info("set krb5 file:{}", krb5confPath);
         // 不刷新会读/etc/krb5.conf
         try {
             Config.refresh();
             KerberosName.resetDefaultRealm();
         } catch (KrbException e) {
-            LOG.warn(
+            log.warn(
                     "resetting default realm failed, current default realm will still be used.", e);
         }
     }
 
     public static void loadKrb5Conf(
-            Map<String, Object> kerberosConfig, DistributedCache distributedCache) {
+            Map<String, Object> kerberosConfig,
+            DistributedCache distributedCache,
+            String jobId,
+            String taskNumber) {
         String krb5FilePath = MapUtils.getString(kerberosConfig, KEY_JAVA_SECURITY_KRB5_CONF);
         if (StringUtils.isEmpty(krb5FilePath)) {
-            LOG.info("krb5 file is empty,will use default file");
+            log.info("krb5 file is empty,will use default file");
             return;
         }
 
-        krb5FilePath = loadFile(kerberosConfig, krb5FilePath, distributedCache);
+        krb5FilePath = loadFile(kerberosConfig, krb5FilePath, distributedCache, jobId, taskNumber);
         kerberosConfig.put(KEY_JAVA_SECURITY_KRB5_CONF, krb5FilePath);
         System.setProperty(KEY_JAVA_SECURITY_KRB5_CONF, krb5FilePath);
     }
 
-    public static void loadKrb5Conf(Map<String, Object> kerberosConfig) {
-        loadKrb5Conf(kerberosConfig, null);
+    public static void loadKrb5Conf(
+            Map<String, Object> kerberosConfig, String jobId, String taskNumber) {
+        loadKrb5Conf(kerberosConfig, null, jobId, taskNumber);
     }
 
     /**
@@ -193,43 +194,46 @@ public class KerberosUtil {
     public static String loadFile(
             Map<String, Object> kerberosConfig,
             String filePath,
-            DistributedCache distributedCache) {
+            DistributedCache distributedCache,
+            String jobId,
+            String taskNumber) {
         boolean useLocalFile = MapUtils.getBooleanValue(kerberosConfig, KEY_USE_LOCAL_FILE);
         if (useLocalFile) {
-            LOG.info("will use local file:{}", filePath);
+            log.info("will use local file:{}", filePath);
             checkFileExists(filePath);
             return filePath;
         } else {
             String fileName = new File(filePath).getName();
             if (StringUtils.startsWith(fileName, "blob_")) {
                 // already downloaded from blobServer
-                LOG.info("file [{}] already downloaded from blobServer", filePath);
+                log.info("file [{}] already downloaded from blobServer", filePath);
                 return filePath;
             }
             if (distributedCache != null) {
                 try {
                     File file = distributedCache.getFile(fileName);
                     String absolutePath = file.getAbsolutePath();
-                    LOG.info(
+                    log.info(
                             "load file [{}] from Flink BlobServer, download file path = {}",
                             fileName,
                             absolutePath);
                     return absolutePath;
                 } catch (Exception e) {
-                    LOG.warn(
+                    log.warn(
                             "failed to get [{}] from Flink BlobServer, try to get from sftp. e = {}",
                             fileName,
                             e.getMessage());
                 }
             }
 
-            fileName = loadFromSftp(kerberosConfig, fileName);
+            fileName = loadFromSftp(kerberosConfig, fileName, jobId, taskNumber);
             return fileName;
         }
     }
 
-    public static String loadFile(Map<String, Object> kerberosConfig, String filePath) {
-        return loadFile(kerberosConfig, filePath, null);
+    public static String loadFile(
+            Map<String, Object> kerberosConfig, String filePath, String jobId, String taskNumber) {
+        return loadFile(kerberosConfig, filePath, null, jobId, taskNumber);
     }
 
     public static void checkFileExists(String filePath) {
@@ -243,7 +247,8 @@ public class KerberosUtil {
         }
     }
 
-    private static String loadFromSftp(Map<String, Object> config, String fileName) {
+    private static String loadFromSftp(
+            Map<String, Object> config, String fileName, String jobId, String taskNumber) {
         String remoteDir = MapUtils.getString(config, KEY_REMOTE_DIR);
         if (StringUtils.isBlank(remoteDir)) {
             throw new ChunJunRuntimeException(
@@ -251,8 +256,21 @@ public class KerberosUtil {
         }
         String filePathOnSftp = remoteDir + "/" + fileName;
 
+        if (StringUtils.isBlank(jobId)) {
+            // 创建分片在 JobManager， 此时还没有 JobId，随机生成UUID
+            jobId = UUID.randomUUID().toString();
+            log.warn("jobId is null, jobId will be replaced with [UUID], jobId(UUID) = {}.", jobId);
+        }
+
+        if (StringUtils.isBlank(taskNumber)) {
+            taskNumber = UUID.randomUUID().toString();
+            log.warn(
+                    "taskNumber is null, taskNumber will be replaced with [UUID], taskNumber(UUID) = {}.",
+                    taskNumber);
+        }
+
         String localDirName = Md5Util.getMd5(remoteDir);
-        String localDir = LOCAL_CACHE_DIR + SP + localDirName;
+        String localDir = LOCAL_CACHE_DIR + SP + jobId + SP + taskNumber + SP + localDirName;
         localDir = createDir(localDir);
         String fileLocalPath = localDir + SP + fileName;
         // 更新sftp文件对应的local文件
@@ -261,11 +279,14 @@ public class KerberosUtil {
         }
         SftpHandler handler = null;
         try {
-            handler = SftpHandler.getInstanceWithRetry(MapUtils.getMap(config, KEY_SFTP_CONF));
+            handler =
+                    SftpHandler.getInstanceWithRetry(
+                            GsonUtil.GSON.fromJson(
+                                    MapUtils.getString(config, KEY_SFTP_CONF), Map.class));
             if (handler.isFileExist(filePathOnSftp)) {
                 handler.downloadFileWithRetry(filePathOnSftp, fileLocalPath);
 
-                LOG.info("download file:{} to local:{}", filePathOnSftp, fileLocalPath);
+                log.info("download file:{} to local:{}", filePathOnSftp, fileLocalPath);
                 return fileLocalPath;
             }
         } catch (Exception e) {
@@ -279,12 +300,12 @@ public class KerberosUtil {
         throw new RuntimeException("File[" + filePathOnSftp + "] not exist on sftp");
     }
 
-    private static String findPrincipalFromKeytab(String keytabFile) {
+    protected static String findPrincipalFromKeytab(String keytabFile) {
         KeyTab keyTab = KeyTab.getInstance(keytabFile);
         for (KeyTabEntry entry : keyTab.getEntries()) {
             String principal = entry.getService().getName();
 
-            LOG.info("parse principal:{} from keytab:{}", principal, keytabFile);
+            log.info("parse principal:{} from keytab:{}", principal, keytabFile);
             return principal;
         }
 
@@ -295,19 +316,19 @@ public class KerberosUtil {
         if (fileExists(filePath)) {
             File file = new File(filePath);
             if (file.delete()) {
-                LOG.info(file.getName() + " is deleted！");
+                log.info(file.getName() + " is deleted！");
             } else {
-                LOG.error("deleted " + file.getName() + " failed！");
+                log.error("deleted " + file.getName() + " failed！");
             }
         }
     }
 
-    private static boolean fileExists(String filePath) {
+    protected static boolean fileExists(String filePath) {
         File file = new File(filePath);
         return file.exists() && file.isFile();
     }
 
-    private static String createDir(String dir) {
+    protected static String createDir(String dir) {
         File file = new File(dir);
         if (file.exists()) {
             return dir;
@@ -315,10 +336,10 @@ public class KerberosUtil {
 
         boolean result = file.mkdirs();
         if (!result) {
-            LOG.warn("Create dir failure:{}", dir);
+            log.warn("Create dir failure:{}", dir);
         }
 
-        LOG.info("create local dir:{}", dir);
+        log.info("create local dir:{}", dir);
         return dir;
     }
 
@@ -343,7 +364,7 @@ public class KerberosUtil {
             // reload java.security.auth.login.config
             javax.security.auth.login.Configuration.setConfiguration(null);
         } catch (Exception e) {
-            LOG.warn(
+            log.warn(
                     "resetting default realm failed, current default realm will still be used.", e);
         }
     }

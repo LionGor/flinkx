@@ -18,19 +18,13 @@
 package com.dtstack.chunjun.connector.db2.table;
 
 import com.dtstack.chunjun.connector.db2.dialect.Db2Dialect;
-import com.dtstack.chunjun.connector.db2.sink.Db2OutputFormat;
-import com.dtstack.chunjun.connector.db2.source.Db2InputFormat;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
+import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormat;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
+import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormat;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.table.JdbcDynamicTableFactory;
 
-/**
- * Company: www.dtstack.com
- *
- * @author xuchao
- * @date 2021-06-15
- */
 public class Db2DynamicTableFactory extends JdbcDynamicTableFactory {
 
     private static final String IDENTIFIER = "db2-x";
@@ -47,11 +41,11 @@ public class Db2DynamicTableFactory extends JdbcDynamicTableFactory {
 
     @Override
     protected JdbcInputFormatBuilder getInputFormatBuilder() {
-        return new JdbcInputFormatBuilder(new Db2InputFormat());
+        return new JdbcInputFormatBuilder(new JdbcInputFormat());
     }
 
     @Override
     protected JdbcOutputFormatBuilder getOutputFormatBuilder() {
-        return new JdbcOutputFormatBuilder(new Db2OutputFormat());
+        return new JdbcOutputFormatBuilder(new JdbcOutputFormat());
     }
 }

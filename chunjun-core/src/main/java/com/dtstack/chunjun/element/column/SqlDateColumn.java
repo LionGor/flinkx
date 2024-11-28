@@ -33,8 +33,8 @@ public class SqlDateColumn extends AbstractBaseColumn {
         super(data, 8);
     }
 
-    public SqlDateColumn(Date data, int byteSize) {
-        super(data, 0);
+    private SqlDateColumn(Date data, int byteSize) {
+        super(data, byteSize);
     }
 
     public SqlDateColumn(long data) {
@@ -46,23 +46,28 @@ public class SqlDateColumn extends AbstractBaseColumn {
     }
 
     @Override
-    public Boolean asBoolean() {
-        if (null == data) {
-            return null;
-        }
-        throw new CastException("java.sql.Date", "Boolean", this.asString());
+    public String type() {
+        return "DATE";
     }
 
     @Override
-    public byte[] asBytes() {
+    public Boolean asBooleanInternal() {
         if (null == data) {
             return null;
         }
-        throw new CastException("java.sql.Date", "Bytes", this.asString());
+        throw new CastException("java.sql.Date", "Boolean", this.asStringInternal());
     }
 
     @Override
-    public String asString() {
+    public byte[] asBytesInternal() {
+        if (null == data) {
+            return null;
+        }
+        throw new CastException("java.sql.Date", "Bytes", this.asStringInternal());
+    }
+
+    @Override
+    public String asStringInternal() {
         if (null == data) {
             return null;
         }
@@ -70,7 +75,7 @@ public class SqlDateColumn extends AbstractBaseColumn {
     }
 
     @Override
-    public BigDecimal asBigDecimal() {
+    public BigDecimal asBigDecimalInternal() {
         if (null == data) {
             return null;
         }
@@ -78,7 +83,7 @@ public class SqlDateColumn extends AbstractBaseColumn {
     }
 
     @Override
-    public Timestamp asTimestamp() {
+    public Timestamp asTimestampInternal() {
         if (null == data) {
             return null;
         }
@@ -86,15 +91,15 @@ public class SqlDateColumn extends AbstractBaseColumn {
     }
 
     @Override
-    public Time asTime() {
+    public Time asTimeInternal() {
         if (null == data) {
             return null;
         }
-        throw new CastException("java.sql.Date", "java.sql.Time", this.asString());
+        throw new CastException("java.sql.Date", "java.sql.Time", this.asStringInternal());
     }
 
     @Override
-    public Date asSqlDate() {
+    public Date asSqlDateInternal() {
         if (null == data) {
             return null;
         }
@@ -102,7 +107,7 @@ public class SqlDateColumn extends AbstractBaseColumn {
     }
 
     @Override
-    public String asTimestampStr() {
+    public String asTimestampStrInternal() {
         if (null == data) {
             return null;
         }
@@ -111,6 +116,17 @@ public class SqlDateColumn extends AbstractBaseColumn {
 
     @Override
     public Integer asYearInt() {
-        return asTimestamp().toLocalDateTime().getYear();
+        if (null == data) {
+            return null;
+        }
+        return asTimestampInternal().toLocalDateTime().getYear();
+    }
+
+    @Override
+    public Integer asMonthInt() {
+        if (null == data) {
+            return null;
+        }
+        return asTimestampInternal().toLocalDateTime().getMonthValue();
     }
 }

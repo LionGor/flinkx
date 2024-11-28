@@ -18,15 +18,17 @@
 
 package com.dtstack.chunjun.connector.jdbc.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.connector.jdbc.adapter.ConnectionAdapter;
-import com.dtstack.chunjun.connector.jdbc.conf.ConnectionConf;
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcConf;
+import com.dtstack.chunjun.connector.jdbc.config.ConnectionConfig;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
+import com.dtstack.chunjun.connector.jdbc.config.SinkConnectionConfig;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.exclusion.FieldNameExclusionStrategy;
 import com.dtstack.chunjun.connector.jdbc.util.JdbcUtil;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.sink.SinkFactory;
 import com.dtstack.chunjun.table.options.SinkOptions;
 import com.dtstack.chunjun.util.GsonUtil;
@@ -39,84 +41,120 @@ import org.apache.flink.table.types.logical.RowType;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
+import java.sql.Connection;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
-/**
- * Date: 2021/04/13 Company: www.dtstack.com
- *
- * @author tudou
- */
 public abstract class JdbcSinkFactory extends SinkFactory {
 
-    protected JdbcConf jdbcConf;
+    protected JdbcConfig jdbcConfig;
     protected JdbcDialect jdbcDialect;
 
-    public JdbcSinkFactory(SyncConf syncConf, JdbcDialect jdbcDialect) {
-        super(syncConf);
+    protected List<String> columnNameList;
+    protected List<TypeConfig> columnTypeList;
+
+    public JdbcSinkFactory(SyncConfig syncConfig, JdbcDialect jdbcDialect) {
+        super(syncConfig);
         this.jdbcDialect = jdbcDialect;
         Gson gson =
                 new GsonBuilder()
                         .registerTypeAdapter(
-                                ConnectionConf.class, new ConnectionAdapter("SinkConnectionConf"))
+                                ConnectionConfig.class,
+                                new ConnectionAdapter(SinkConnectionConfig.class.getName()))
                         .addDeserializationExclusionStrategy(
                                 new FieldNameExclusionStrategy("column"))
                         .create();
         GsonUtil.setTypeAdapter(gson);
-        jdbcConf = gson.fromJson(gson.toJson(syncConf.getWriter().getParameter()), getConfClass());
+        jdbcConfig =
+                gson.fromJson(gson.toJson(syncConfig.getWriter().getParameter()), getConfClass());
         int batchSize =
-                syncConf.getWriter()
+                syncConfig
+                        .getWriter()
                         .getIntVal(
                                 "batchSize", SinkOptions.SINK_BUFFER_FLUSH_MAX_ROWS.defaultValue());
-        jdbcConf.setBatchSize(batchSize);
+        jdbcConfig.setBatchSize(batchSize);
         long flushIntervalMills =
-                syncConf.getWriter()
+                syncConfig
+                        .getWriter()
                         .getLongVal(
                                 "flushIntervalMills",
                                 SinkOptions.SINK_BUFFER_FLUSH_INTERVAL.defaultValue());
-        jdbcConf.setFlushIntervalMills(flushIntervalMills);
-        jdbcConf.setColumn(syncConf.getWriter().getFieldList());
-        Properties properties = syncConf.getWriter().getProperties("properties", null);
-        jdbcConf.setProperties(properties);
-        if (StringUtils.isNotEmpty(syncConf.getWriter().getSemantic())) {
-            jdbcConf.setSemantic(syncConf.getWriter().getSemantic());
+        jdbcConfig.setFlushIntervalMills(flushIntervalMills);
+        jdbcConfig.setColumn(syncConfig.getWriter().getFieldList());
+        Properties properties = syncConfig.getWriter().getProperties("properties", null);
+        jdbcConfig.setProperties(properties);
+        if (StringUtils.isNotEmpty(syncConfig.getWriter().getSemantic())) {
+            jdbcConfig.setSemantic(syncConfig.getWriter().getSemantic());
         }
-        super.initCommonConf(jdbcConf);
+        super.initCommonConf(jdbcConfig);
         resetTableInfo();
-        rebuildJdbcConf(jdbcConf);
     }
 
     @Override
     public DataStreamSink<RowData> createSink(DataStream<RowData> dataSet) {
         JdbcOutputFormatBuilder builder = getBuilder();
-        builder.setJdbcConf(jdbcConf);
+        initColumnInfo();
+        builder.setJdbcConf(jdbcConfig);
+        builder.setDdlConfig(ddlConfig);
         builder.setJdbcDialect(jdbcDialect);
-        builder.setMonitorConfig(monitor);
+        builder.setColumnNameList(columnNameList);
+        builder.setColumnTypeList(columnTypeList);
 
-        AbstractRowConverter rowConverter = null;
+        AbstractRowConverter<?, ?, ?, ?> rowConverter;
+        AbstractRowConverter keyRowConverter;
+        final RowType rowType = TableUtil.createRowType(jdbcConfig.getColumn(), getRawTypeMapper());
+        final RowType keyRowType =
+                TableUtil.createRowType(
+                        jdbcConfig.getColumn().stream()
+                                .filter(
+                                        field ->
+                                                jdbcConfig.getUniqueKey().contains(field.getName()))
+                                .collect(Collectors.toList()),
+                        getRawTypeMapper());
         // 同步任务使用transform
         if (!useAbstractBaseColumn) {
-            final RowType rowType =
-                    TableUtil.createRowType(jdbcConf.getColumn(), getRawTypeConverter());
             rowConverter = jdbcDialect.getRowConverter(rowType);
+            keyRowConverter = jdbcDialect.getRowConverter(keyRowType);
+        } else {
+            rowConverter = jdbcDialect.getColumnConverter(rowType, jdbcConfig);
+            keyRowConverter = jdbcDialect.getColumnConverter(keyRowType, jdbcConfig);
         }
         builder.setRowConverter(rowConverter, useAbstractBaseColumn);
+        builder.setKeyRowType(keyRowType);
+        builder.setKeyRowConverter(keyRowConverter);
 
         return createOutput(dataSet, builder.finish());
     }
 
+    protected void initColumnInfo() {
+        Connection conn = getConn();
+        Pair<List<String>, List<TypeConfig>> tableMetaData = getTableMetaData(conn);
+        Pair<List<String>, List<TypeConfig>> selectedColumnInfo =
+                JdbcUtil.buildColumnWithMeta(jdbcConfig, tableMetaData, null);
+        columnNameList = selectedColumnInfo.getLeft();
+        columnTypeList = selectedColumnInfo.getRight();
+        JdbcUtil.closeDbResources(null, null, conn, false);
+    }
+
+    protected Pair<List<String>, List<TypeConfig>> getTableMetaData(Connection dbConn) {
+        return jdbcDialect.getTableMetaData(dbConn, jdbcConfig);
+    }
+
+    protected Connection getConn() {
+        return JdbcUtil.getConnection(jdbcConfig, jdbcDialect);
+    }
+
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return jdbcDialect.getRawTypeConverter();
     }
 
-    protected Class<? extends JdbcConf> getConfClass() {
-        return JdbcConf.class;
+    protected Class<? extends JdbcConfig> getConfClass() {
+        return JdbcConfig.class;
     }
 
     /**
@@ -130,21 +168,8 @@ public abstract class JdbcSinkFactory extends SinkFactory {
 
     /** table字段有可能是schema.table格式 需要转换为对应的schema 和 table 字段* */
     protected void resetTableInfo() {
-        if (StringUtils.isBlank(jdbcConf.getSchema())) {
-            JdbcUtil.resetSchemaAndTable(jdbcConf, "\\\"", "\\\"");
-        }
-    }
-
-    protected void rebuildJdbcConf(JdbcConf jdbcConf) {
-        // updateKey has Deprecated，please use uniqueKey
-        if (MapUtils.isNotEmpty(jdbcConf.getUpdateKey())
-                && CollectionUtils.isEmpty(jdbcConf.getUniqueKey())) {
-            for (Map.Entry<String, List<String>> entry : jdbcConf.getUpdateKey().entrySet()) {
-                if (CollectionUtils.isNotEmpty(entry.getValue())) {
-                    jdbcConf.setUniqueKey(entry.getValue());
-                    break;
-                }
-            }
+        if (StringUtils.isBlank(jdbcConfig.getSchema())) {
+            JdbcUtil.resetSchemaAndTable(jdbcConfig, "\\\"", "\\\"");
         }
     }
 }

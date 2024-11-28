@@ -17,52 +17,48 @@
  */
 package com.dtstack.chunjun.connector.hdfs.sink;
 
-import com.dtstack.chunjun.connector.hdfs.conf.HdfsConf;
+import com.dtstack.chunjun.connector.hdfs.config.HdfsConfig;
 import com.dtstack.chunjun.connector.hdfs.enums.FileType;
 import com.dtstack.chunjun.constants.ConstantValue;
-import com.dtstack.chunjun.sink.format.FileOutputFormatBuilder;
+import com.dtstack.chunjun.sink.format.BaseRichOutputFormatBuilder;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Date: 2021/06/18 Company: www.dtstack.com
- *
- * @author tudou
- */
-public class HdfsOutputFormatBuilder extends FileOutputFormatBuilder {
-    private final BaseHdfsOutputFormat format;
+public class HdfsOutputFormatBuilder extends BaseRichOutputFormatBuilder<BaseHdfsOutputFormat> {
 
-    public HdfsOutputFormatBuilder(String fileType) {
-        switch (FileType.getByName(fileType)) {
-            case ORC:
-                format = new HdfsOrcOutputFormat();
-                break;
-            case PARQUET:
-                format = new HdfsParquetOutputFormat();
-                break;
-            default:
-                format = new HdfsTextOutputFormat();
-        }
-        super.setFormat(format);
+    public HdfsOutputFormatBuilder(BaseHdfsOutputFormat format) {
+        super(format);
     }
 
-    public void setHdfsConf(HdfsConf hdfsConf) {
-        super.setBaseFileConf(hdfsConf);
-        format.setHdfsConf(hdfsConf);
+    public static HdfsOutputFormatBuilder newBuild(String type) {
+        switch (FileType.getByName(type)) {
+            case ORC:
+                return new HdfsOutputFormatBuilder(new HdfsOrcOutputFormat());
+            case PARQUET:
+                return new HdfsOutputFormatBuilder(new HdfsParquetOutputFormat());
+            default:
+                return new HdfsOutputFormatBuilder(new HdfsTextOutputFormat());
+        }
+    }
+
+    public void setHdfsConf(HdfsConfig hdfsConfig) {
+        super.setConfig(hdfsConfig);
+        format.setBaseFileConfig(hdfsConfig);
+        format.setHdfsConf(hdfsConfig);
     }
 
     @Override
     protected void checkFormat() {
         StringBuilder errorMessage = new StringBuilder(256);
-        HdfsConf hdfsConf = format.getHdfsConf();
-        if (StringUtils.isBlank(hdfsConf.getPath())) {
+        HdfsConfig hdfsConfig = format.getHdfsConf();
+        if (StringUtils.isBlank(hdfsConfig.getPath())) {
             errorMessage.append("No path supplied. \n");
         }
 
-        if (StringUtils.isBlank(hdfsConf.getDefaultFS())) {
+        if (StringUtils.isBlank(hdfsConfig.getDefaultFS())) {
             errorMessage.append("No defaultFS supplied. \n");
-        } else if (!hdfsConf.getDefaultFS().startsWith(ConstantValue.PROTOCOL_HDFS)) {
+        } else if (!hdfsConfig.getDefaultFS().startsWith(ConstantValue.PROTOCOL_HDFS)) {
             errorMessage.append("defaultFS should start with hdfs:// \n");
         }
         if (StringUtils.isNotBlank(errorMessage)) {

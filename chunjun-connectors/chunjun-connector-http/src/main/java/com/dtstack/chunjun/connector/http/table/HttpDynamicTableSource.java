@@ -23,7 +23,7 @@ import com.dtstack.chunjun.connector.http.common.HttpMethod;
 import com.dtstack.chunjun.connector.http.common.HttpRestConfig;
 import com.dtstack.chunjun.connector.http.common.MetaParam;
 import com.dtstack.chunjun.connector.http.common.ParamType;
-import com.dtstack.chunjun.connector.http.converter.HttpRowConverter;
+import com.dtstack.chunjun.connector.http.converter.HttpSqlConverter;
 import com.dtstack.chunjun.connector.http.inputformat.HttpInputFormatBuilder;
 import com.dtstack.chunjun.source.DtInputFormatSourceFunction;
 import com.dtstack.chunjun.table.connector.source.ParallelSourceFunctionProvider;
@@ -65,12 +65,12 @@ public class HttpDynamicTableSource implements ScanTableSource {
         HttpInputFormatBuilder builder = new HttpInputFormatBuilder();
         builder.setHttpRestConfig(httpRestConfig);
         builder.setRowConverter(
-                new HttpRowConverter(
+                new HttpSqlConverter(
                         (RowType) this.schema.toRowDataType().getLogicalType(), httpRestConfig));
         builder.setMetaHeaders(httpRestConfig.getHeader());
         builder.setMetaParams(
                 httpRestConfig.getParam() == null ? new ArrayList<>() : httpRestConfig.getParam());
-        builder.setMetaBodys(httpRestConfig.getBody());
+        builder.setMetaBodies(httpRestConfig.getBody());
         if (HttpMethod.POST.name().equalsIgnoreCase(httpRestConfig.getRequestMode())
                 && httpRestConfig.getHeader().stream()
                         .noneMatch(i -> ConstantValue.CONTENT_TYPE_NAME.equals(i.getKey()))) {

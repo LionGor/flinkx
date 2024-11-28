@@ -21,8 +21,8 @@ package com.dtstack.chunjun.typeutil.serializer.base;
 import com.dtstack.chunjun.element.AbstractBaseColumn;
 import com.dtstack.chunjun.element.column.BigDecimalColumn;
 import com.dtstack.chunjun.element.column.NullColumn;
+import com.dtstack.chunjun.typeutil.SerializerTestBase;
 import com.dtstack.chunjun.typeutil.serializer.DeeplyEqualsChecker;
-import com.dtstack.chunjun.typeutil.serializer.SerializerTestBase;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -30,20 +30,15 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import java.math.BigDecimal;
 import java.util.function.BiFunction;
 
-/** @author liuliu 2022/5/13 */
 public class DecimalColumnSerializerTest extends SerializerTestBase<AbstractBaseColumn> {
 
     @Override
     protected Tuple2<BiFunction<Object, Object, Boolean>, DeeplyEqualsChecker.CustomEqualityChecker>
             getCustomChecker() {
         return Tuple2.of(
-                new BiFunction<Object, Object, Boolean>() {
-                    @Override
-                    public Boolean apply(Object o, Object o2) {
-                        return (o instanceof BigDecimalColumn && o2 instanceof BigDecimalColumn)
-                                || (o instanceof NullColumn && o2 instanceof NullColumn);
-                    }
-                },
+                (o, o2) ->
+                        (o instanceof BigDecimalColumn && o2 instanceof BigDecimalColumn)
+                                || (o instanceof NullColumn && o2 instanceof NullColumn),
                 new DecimalColumnChecker());
     }
 

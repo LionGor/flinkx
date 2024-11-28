@@ -39,12 +39,13 @@ import org.apache.flink.util.InstantiationUtil;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-/** @author liuliu 2022/5/12 */
 public class ColumnRowDataSerializer extends TypeSerializer<RowData> {
+
+    private static final long serialVersionUID = -3193875237503741622L;
 
     StringSerializer stringSerializer = StringSerializer.INSTANCE;
     int size;
@@ -96,12 +97,20 @@ public class ColumnRowDataSerializer extends TypeSerializer<RowData> {
 
     @Override
     public RowData copy(RowData from) {
-        return from;
+        ColumnRowData that = (ColumnRowData) from;
+        ColumnRowData columnRowData = new ColumnRowData(that.getRowKind(), size);
+        columnRowData.setHeader(that.getHeaderInfo());
+        columnRowData.setExtHeader(that.getExtHeader());
+        for (int i = 0; i < size; i++) {
+            columnRowData.addField(fieldSerializers[i].copy(that.getField(i)));
+        }
+        columnRowData.setByteSize(that.getByteSize());
+        return columnRowData;
     }
 
     @Override
     public RowData copy(RowData from, RowData reuse) {
-        return from;
+        return copy(from);
     }
 
     @Override
@@ -152,7 +161,7 @@ public class ColumnRowDataSerializer extends TypeSerializer<RowData> {
 
         int infoSize = source.readInt();
         if (infoSize >= 0) {
-            final Map<String, Integer> headerInfo = new HashMap<>(infoSize);
+            final LinkedHashMap<String, Integer> headerInfo = new LinkedHashMap<>(infoSize);
             for (int i = 0; i < infoSize; i++) {
                 String key = stringSerializer.deserialize(source);
                 boolean isNotNull = source.readBoolean();

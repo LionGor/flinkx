@@ -17,21 +17,23 @@
  */
 package com.dtstack.chunjun;
 
-import com.dtstack.chunjun.cdc.CdcConf;
+import com.dtstack.chunjun.cdc.CdcConfig;
 import com.dtstack.chunjun.cdc.RestorationFlatMap;
 import com.dtstack.chunjun.cdc.ddl.DdlConvent;
-import com.dtstack.chunjun.cdc.ddl.SendProcessHandler;
-import com.dtstack.chunjun.cdc.monitor.fetch.FetcherBase;
-import com.dtstack.chunjun.cdc.monitor.store.StoreBase;
-import com.dtstack.chunjun.conf.OperatorConf;
-import com.dtstack.chunjun.conf.SpeedConf;
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.cdc.handler.CacheHandler;
+import com.dtstack.chunjun.cdc.handler.DDLHandler;
+import com.dtstack.chunjun.config.OperatorConfig;
+import com.dtstack.chunjun.config.SpeedConfig;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.constants.ConstantValue;
-import com.dtstack.chunjun.dirty.DirtyConf;
+import com.dtstack.chunjun.constants.Metrics;
+import com.dtstack.chunjun.dirty.DirtyConfig;
 import com.dtstack.chunjun.dirty.utils.DirtyConfUtil;
+import com.dtstack.chunjun.enums.ClusterMode;
 import com.dtstack.chunjun.enums.EJobType;
 import com.dtstack.chunjun.environment.EnvFactory;
 import com.dtstack.chunjun.environment.MyLocalStreamEnvironment;
+import com.dtstack.chunjun.mapping.MappingConfig;
 import com.dtstack.chunjun.mapping.NameMappingFlatMap;
 import com.dtstack.chunjun.options.OptionParser;
 import com.dtstack.chunjun.options.Options;
@@ -41,77 +43,92 @@ import com.dtstack.chunjun.sql.parser.SqlParser;
 import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 import com.dtstack.chunjun.throwable.JobConfigException;
 import com.dtstack.chunjun.util.DataSyncFactoryUtil;
-import com.dtstack.chunjun.util.DdlConventNameConvertUtil;
+import com.dtstack.chunjun.util.ExceptionUtil;
 import com.dtstack.chunjun.util.ExecuteProcessHelper;
 import com.dtstack.chunjun.util.FactoryHelper;
 import com.dtstack.chunjun.util.JobUtil;
 import com.dtstack.chunjun.util.PluginUtil;
 import com.dtstack.chunjun.util.PrintUtil;
 import com.dtstack.chunjun.util.PropertiesUtil;
+import com.dtstack.chunjun.util.RealTimeDataSourceNameUtil;
 import com.dtstack.chunjun.util.TableUtil;
 
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.runtime.clusterframework.ApplicationStatus;
+import org.apache.flink.runtime.entrypoint.ClusterEntrypoint;
 import org.apache.flink.runtime.jobgraph.SavepointConfigOptions;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.StatementSet;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.expressions.Expression;
-import org.apache.flink.table.expressions.ExpressionParser;
 import org.apache.flink.table.factories.FactoryUtil;
-import org.apache.flink.table.factories.TableFactoryService;
+import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.RowType;
 
 import com.google.common.base.Preconditions;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
-import static com.dtstack.chunjun.util.PluginUtil.READER_SUFFIX;
-import static com.dtstack.chunjun.util.PluginUtil.SINK_SUFFIX;
-import static com.dtstack.chunjun.util.PluginUtil.SOURCE_SUFFIX;
-import static com.dtstack.chunjun.util.PluginUtil.WRITER_SUFFIX;
+import static com.dtstack.chunjun.enums.EJobType.SQL;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
-/**
- * The main class entry
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
+@Slf4j
 public class Main {
 
-    public static Logger LOG = LoggerFactory.getLogger(Main.class);
-
     public static void main(String[] args) throws Exception {
-        LOG.info("------------program params-------------------------");
-        Arrays.stream(args).forEach(arg -> LOG.info("{}", arg));
-        LOG.info("-------------------------------------------");
+        log.info("------------program params-------------------------");
+        Arrays.stream(args).forEach(arg -> log.info("{}", arg));
+        log.info("-------------------------------------------");
 
         Options options = new OptionParser(args).getOptions();
-        String job = URLDecoder.decode(options.getJob(), StandardCharsets.UTF_8.name());
-        String replacedJob = JobUtil.replaceJobParameter(options.getP(), job);
+        String replacedJob = "";
+        File file = new File(options.getJob());
+        if (file.isFile()) {
+            try {
+                replacedJob = FileUtils.readFileToString(file, StandardCharsets.UTF_8.name());
+            } catch (IOException ioe) {
+                log.error("Can not get the job info !!!", ioe);
+                throw new RuntimeException(ioe);
+            }
+        } else {
+            String job = URLDecoder.decode(options.getJob(), StandardCharsets.UTF_8.name());
+            replacedJob = JobUtil.replaceJobParameter(options.getP(), job);
+        }
         Properties confProperties = PropertiesUtil.parseConf(options.getConfProp());
+        if (EJobType.getByName(options.getJobType()).equals(SQL)) {
+            options.setSqlSetConfiguration(SqlParser.parseSqlSet(replacedJob));
+        }
         StreamExecutionEnvironment env = EnvFactory.createStreamExecutionEnvironment(options);
         StreamTableEnvironment tEnv =
                 EnvFactory.createStreamTableEnvironment(env, confProperties, options.getJobName());
-        LOG.info(
+        log.info(
                 "Register to table configuration:{}",
                 tEnv.getConfig().getConfiguration().toString());
         switch (EJobType.getByName(options.getJobType())) {
@@ -128,18 +145,9 @@ public class Main {
                                 + "], jobType must in [SQL, SYNC].");
         }
 
-        LOG.info("program {} execution success", options.getJobName());
+        log.info("program {} execution success", options.getJobName());
     }
 
-    /**
-     * 执行sql 类型任务
-     *
-     * @param env
-     * @param tableEnv
-     * @param job
-     * @param options
-     * @throws Exception
-     */
     private static void exeSqlJob(
             StreamExecutionEnvironment env,
             StreamTableEnvironment tableEnv,
@@ -148,59 +156,66 @@ public class Main {
         try {
             configStreamExecutionEnvironment(env, options, null);
             List<URL> jarUrlList = ExecuteProcessHelper.getExternalJarUrls(options.getAddjar());
+            String runMode = options.getRunMode();
+            if ("batch".equalsIgnoreCase(runMode)) env.setRuntimeMode(RuntimeExecutionMode.BATCH);
             StatementSet statementSet = SqlParser.parseSql(job, jarUrlList, tableEnv);
             TableResult execute = statementSet.execute();
+            // Solve the problem that yarn-per-job sql mode does not exit when executing batch jobs
+            Properties confProperties = PropertiesUtil.parseConf(options.getConfProp());
+            String executionMode =
+                    confProperties.getProperty(
+                            "chunjun.cluster.execution-mode",
+                            ClusterEntrypoint.ExecutionMode.DETACHED.name());
+            if (!ClusterEntrypoint.ExecutionMode.DETACHED.name().equalsIgnoreCase(executionMode)) {
+                // wait job finish
+                printSqlResult(execute);
+            }
             if (env instanceof MyLocalStreamEnvironment) {
                 Optional<JobClient> jobClient = execute.getJobClient();
                 if (jobClient.isPresent()) {
-                    PrintUtil.printResult(jobClient.get().getAccumulators().get());
+                    PrintUtil.printResult(
+                            jobClient
+                                    .get()
+                                    .getJobExecutionResult()
+                                    .get()
+                                    .getAllAccumulatorResults());
                 }
             }
         } catch (Exception e) {
             throw new ChunJunRuntimeException(e);
-        } finally {
-            FactoryUtil.getFactoryHelperThreadLocal().remove();
-            TableFactoryService.getFactoryHelperThreadLocal().remove();
         }
     }
 
-    /**
-     * 执行 数据同步类型任务
-     *
-     * @param env
-     * @param tableEnv
-     * @param job
-     * @param options
-     * @throws Exception
-     */
     private static void exeSyncJob(
             StreamExecutionEnvironment env,
             StreamTableEnvironment tableEnv,
             String job,
             Options options)
             throws Exception {
-        SyncConf config = parseConf(job, options);
+        SyncConfig config = parseConfig(job, options);
         configStreamExecutionEnvironment(env, options, config);
 
         SourceFactory sourceFactory = DataSyncFactoryUtil.discoverSource(config, env);
         DataStream<RowData> dataStreamSource = sourceFactory.createSource();
-
-        dataStreamSource = addNameMapping(config, dataStreamSource);
-        if (!config.getCdcConf().isSkipDDL()) {
-            CdcConf cdcConf = config.getCdcConf();
-            Pair<FetcherBase, StoreBase> monitorPair =
-                    DataSyncFactoryUtil.discoverFetchBase(cdcConf.getMonitor(), config);
-            dataStreamSource =
-                    dataStreamSource.flatMap(
-                            new RestorationFlatMap(
-                                    monitorPair.getLeft(), monitorPair.getRight(), cdcConf));
-        }
-
-        SpeedConf speed = config.getSpeed();
-        if (speed.getReaderChannel() > 1) {
+        SpeedConfig speed = config.getSpeed();
+        if (speed.getReaderChannel() > 0) {
             dataStreamSource =
                     ((DataStreamSource<RowData>) dataStreamSource)
                             .setParallelism(speed.getReaderChannel());
+        }
+
+        dataStreamSource = addMappingOperator(config, dataStreamSource);
+
+        if (null != config.getCdcConf()
+                && (null != config.getCdcConf().getDdl()
+                        && null != config.getCdcConf().getCache())) {
+            CdcConfig cdcConfig = config.getCdcConf();
+            DDLHandler ddlHandler = DataSyncFactoryUtil.discoverDdlHandler(cdcConfig, config);
+
+            CacheHandler cacheHandler = DataSyncFactoryUtil.discoverCacheHandler(cdcConfig, config);
+            dataStreamSource =
+                    dataStreamSource.flatMap(
+                            new RestorationFlatMap(ddlHandler, cacheHandler, cdcConfig));
         }
 
         DataStream<RowData> dataStream;
@@ -223,33 +238,26 @@ public class Main {
         if (speed.getWriterChannel() > 0) {
             dataStreamSink.setParallelism(speed.getWriterChannel());
         }
-        env.disableOperatorChaining();
+
         JobExecutionResult result = env.execute(options.getJobName());
         if (env instanceof MyLocalStreamEnvironment) {
             PrintUtil.printResult(result.getAllAccumulatorResults());
         }
     }
 
-    /**
-     * 将数据同步Stream 注册成table
-     *
-     * @param tableEnv
-     * @param config
-     * @param sourceDataStream
-     * @return
-     */
     private static DataStream<RowData> syncStreamToTable(
             StreamTableEnvironment tableEnv,
-            SyncConf config,
+            SyncConfig config,
             DataStream<RowData> sourceDataStream) {
-        String fieldNames =
-                String.join(ConstantValue.COMMA_SYMBOL, config.getReader().getFieldNameList());
-        List<Expression> expressionList = ExpressionParser.parseExpressionList(fieldNames);
-        Table sourceTable =
-                tableEnv.fromDataStream(
-                        sourceDataStream, expressionList.toArray(new Expression[0]));
+        Schema.Builder builder = Schema.newBuilder();
+        for (RowType.RowField rowField :
+                ((InternalTypeInfo<?>) sourceDataStream.getType()).toRowType().getFields()) {
+            builder.column(rowField.getName(), rowField.getType().asSerializableString());
+        }
 
-        checkTableConf(config.getReader());
+        Table sourceTable = tableEnv.fromDataStream(sourceDataStream, builder.build());
+
+        checkTableConfig(config.getReader());
         tableEnv.createTemporaryView(config.getReader().getTable().getTableName(), sourceTable);
 
         String transformSql = config.getJob().getTransformer().getTransformSql();
@@ -262,23 +270,21 @@ public class Main {
         DataStream<RowData> dataStream =
                 tableEnv.toRetractStream(adaptTable, typeInformation).map(f -> f.f1);
 
-        checkTableConf(config.getWriter());
+        checkTableConfig(config.getWriter());
         tableEnv.createTemporaryView(config.getWriter().getTable().getTableName(), dataStream);
 
         return dataStream;
     }
 
-    /**
-     * 解析并设置job
-     *
-     * @param job
-     * @param options
-     * @return
-     */
-    public static SyncConf parseConf(String job, Options options) {
-        SyncConf config;
+    public static SyncConfig parseConfig(String job, Options options) {
+        SyncConfig config;
         try {
-            config = SyncConf.parseJob(job);
+            config = SyncConfig.parseJob(job);
+
+            // 设置chunjun-dist的路径
+            if (StringUtils.isNotBlank(options.getChunjunDistDir())) {
+                config.setPluginRoot(options.getChunjunDistDir());
+            }
 
             Properties confProperties = PropertiesUtil.parseConf(options.getConfProp());
 
@@ -294,15 +300,8 @@ public class Main {
         return config;
     }
 
-    /**
-     * 配置StreamExecutionEnvironment
-     *
-     * @param env StreamExecutionEnvironment
-     * @param options options
-     * @param config ChunJunConf
-     */
     private static void configStreamExecutionEnvironment(
-            StreamExecutionEnvironment env, Options options, SyncConf config) {
+            StreamExecutionEnvironment env, Options options, SyncConfig config) {
 
         if (config != null) {
             PluginUtil.registerPluginUrlToCachedFile(options, config, env);
@@ -320,82 +319,210 @@ public class Main {
             factoryHelper.setPluginLoadMode(options.getPluginLoadMode());
             factoryHelper.setEnv(env);
             factoryHelper.setExecutionMode(options.getMode());
+            DirtyConfig dirtyConfig = DirtyConfUtil.parse(options);
+            // 注册core包
+            if (ClusterMode.local.name().equalsIgnoreCase(options.getMode())) {
+                factoryHelper.registerCachedFile(
+                        "", Thread.currentThread().getContextClassLoader(), "");
+            }
 
-            DirtyConf dirtyConf = DirtyConfUtil.parse(options);
             factoryHelper.registerCachedFile(
-                    dirtyConf.getType(),
+                    dirtyConfig.getType(),
                     Thread.currentThread().getContextClassLoader(),
                     ConstantValue.DIRTY_DATA_DIR_NAME);
             // TODO sql 支持restore.
-
-            FactoryUtil.setFactoryUtilHelp(factoryHelper);
-            TableFactoryService.setFactoryUtilHelp(factoryHelper);
+            FactoryUtil.setFactoryHelper(factoryHelper);
         }
         PluginUtil.registerShipfileToCachedFile(options.getAddShipfile(), env);
     }
 
-    /**
-     * Check required config item.
-     *
-     * @param operatorConf
-     */
-    private static void checkTableConf(OperatorConf operatorConf) {
-        if (operatorConf.getTable() == null) {
-            throw new JobConfigException(operatorConf.getName(), "table", "is missing");
+    private static void checkTableConfig(OperatorConfig operatorConfig) {
+        if (operatorConfig.getTable() == null) {
+            throw new JobConfigException(operatorConfig.getName(), "table", "is missing");
         }
-        if (StringUtils.isEmpty(operatorConf.getTable().getTableName())) {
-            throw new JobConfigException(operatorConf.getName(), "table.tableName", "is missing");
+        if (StringUtils.isEmpty(operatorConfig.getTable().getTableName())) {
+            throw new JobConfigException(operatorConfig.getName(), "table.tableName", "is missing");
         }
     }
 
-    private static DataStream<RowData> addNameMapping(
-            SyncConf config, DataStream<RowData> dataStreamSource) {
-        boolean executeDdlAble =
-                (boolean) config.getWriter().getParameter().getOrDefault("executeDdlAble", false);
+    private static DataStream<RowData> addMappingOperator(
+            SyncConfig config, DataStream<RowData> dataStreamSource) {
 
-        if (config.getNameMappingConf() != null || executeDdlAble) {
-            boolean needSqlConvent = executeDdlAble;
-
-            // 相同类型数据源且没有映射关系 此时不需要ddl转换
-            if (needSqlConvent
-                    && config.getWriter().getName().equals(config.getReader().getName())
-                    && config.getNameMappingConf() == null) {
-                needSqlConvent = false;
-            }
-
-            if (config.getNameMappingConf() != null
-                    && config.getNameMappingConf().getSqlConevnt() != null) {
-                needSqlConvent = config.getNameMappingConf().getSqlConevnt();
-            }
-
-            if (needSqlConvent) {
-                String readerName = config.getReader().getName();
-                String writerName = config.getWriter().getName();
-
-                readerName =
-                        DdlConventNameConvertUtil.convertPackageName(
-                                readerName.replace(READER_SUFFIX, "").replace(SOURCE_SUFFIX, ""));
-                writerName =
-                        DdlConventNameConvertUtil.convertPackageName(
-                                writerName.replace(WRITER_SUFFIX, "").replace(SINK_SUFFIX, ""));
-
-                DdlConvent sourceConvent = DataSyncFactoryUtil.discoverDdlConvent(readerName);
-                DdlConvent sinkConvent = DataSyncFactoryUtil.discoverDdlConvent(writerName);
-                dataStreamSource =
-                        dataStreamSource.flatMap(
-                                new NameMappingFlatMap(
-                                        config.getNameMappingConf(),
-                                        sourceConvent,
-                                        sinkConvent,
-                                        new SendProcessHandler()));
-            } else {
-                dataStreamSource =
-                        dataStreamSource.flatMap(
-                                new NameMappingFlatMap(
-                                        config.getNameMappingConf(), null, null, null));
-            }
+        String sourceName =
+                RealTimeDataSourceNameUtil.getDataSourceName(
+                        PluginUtil.replaceReaderAndWriterSuffix(config.getReader().getName()));
+        // if source is kafka, need to specify the data source in mappingConf
+        if (config.getNameMappingConfig() != null
+                && StringUtils.isNotBlank(config.getNameMappingConfig().getSourceName())) {
+            sourceName = config.getNameMappingConfig().getSourceName();
         }
+        // 如果是实时任务 则sourceName 会和脚本里的名称不一致 例如 oraclelogminer 会转为oracle，binlogreader转为mysql
+        if (PluginUtil.replaceReaderAndWriterSuffix(config.getReader().getName())
+                .equals(sourceName)) {
+            return dataStreamSource;
+        }
+        String sinkName = PluginUtil.replaceReaderAndWriterSuffix(config.getWriter().getName());
 
+        // 异构数据源 或者 需要进行元数据替换
+        boolean ddlSkip = config.getReader().getBooleanVal("ddlSkip", true);
+        boolean useDdlConvent =
+                !sourceName.equals(sinkName) && !ddlSkip
+                        || (config.getNameMappingConfig() != null
+                                && config.getNameMappingConfig().needReplaceMetaData());
+
+        if (useDdlConvent) {
+            DdlConvent sourceDdlConvent = null;
+            DdlConvent sinkDdlConvent = null;
+            MappingConfig mappingConfig = config.getNameMappingConfig();
+
+            try {
+                sourceDdlConvent =
+                        DataSyncFactoryUtil.discoverDdlConventHandler(
+                                mappingConfig, sourceName, config);
+            } catch (Throwable e) {
+                // ignore
+            }
+
+            if (sourceDdlConvent == null || sourceName.equals(sinkName)) {
+                sinkDdlConvent = sourceDdlConvent;
+            } else {
+                try {
+                    sinkDdlConvent =
+                            DataSyncFactoryUtil.discoverDdlConventHandler(
+                                    mappingConfig, sinkName, config);
+                } catch (Throwable e) {
+                    // ignore
+                }
+            }
+
+            return dataStreamSource.flatMap(
+                    new NameMappingFlatMap(
+                            mappingConfig, useDdlConvent, sourceDdlConvent, sinkDdlConvent));
+        }
         return dataStreamSource;
+    }
+
+    /**
+     * Solve the problem that the execution of yarn-per-job sql mode does not exit. Solve the
+     * problem of obtaining statistical indicators and reporting errors when the degree of
+     * parallelism is large
+     */
+    private static void printSqlResult(TableResult execute) {
+        Optional<JobClient> jobClient = execute.getJobClient();
+        jobClient.ifPresent(
+                v -> {
+                    Map<String, Object> accumulators = null;
+                    int sleepTime = 15000;
+                    CompletableFuture<JobExecutionResult> jobExecutionResult = null;
+                    String msg = "";
+                    int tryNum = 0;
+                    while (true) {
+                        try {
+                            Thread.sleep(sleepTime);
+                            ApplicationStatus applicationStatus =
+                                    ApplicationStatus.fromJobStatus(v.getJobStatus().get());
+                            String status = applicationStatus.toString();
+                            switch (applicationStatus) {
+                                case FAILED:
+                                    msg = "Failed to execute this sql";
+                                    break;
+                                case CANCELED:
+                                    msg = "Canceled to execute this sql";
+                                    break;
+                                case SUCCEEDED:
+                                    msg = "Succeeded to execute this sql";
+                                    break;
+                                default:
+                            }
+                            if (StringUtils.isNotBlank(status)) {
+                                status = status.toUpperCase();
+                                if (status.contains("FAILED")) {
+                                    msg = "Failed to execute this sql";
+                                }
+                            }
+                            if (StringUtils.isNotBlank(msg)) {
+                                accumulators = v.getAccumulators().get();
+                                if (null != accumulators.get(Metrics.READ_BYTES)) {
+                                    Map<String, Object> data = new LinkedHashMap<>();
+                                    for (String key : Metrics.METRIC_SINK_LIST) {
+                                        data.put(key, accumulators.get(key));
+                                    }
+                                    data.put(
+                                            Metrics.READ_BYTES,
+                                            accumulators.get(Metrics.READ_BYTES));
+                                    data.put(
+                                            Metrics.READ_DURATION,
+                                            accumulators.get(Metrics.READ_DURATION));
+                                    data.put(
+                                            Metrics.SNAPSHOT_WRITES,
+                                            accumulators.get(Metrics.SNAPSHOT_WRITES));
+                                    System.out.println(PrintUtil.printResult(data));
+                                } else {
+                                    System.out.println(
+                                            getDateTime() + " accumulator read bytes is null");
+                                }
+                                System.out.println(
+                                        getDateTime()
+                                                + " Start to stop flink job("
+                                                + v.getJobID()
+                                                + ")");
+                                while (true) {
+                                    try {
+                                        jobExecutionResult = v.getJobExecutionResult();
+                                        jobExecutionResult.complete(
+                                                new JobExecutionResult(v.getJobID(), 0, null));
+                                        ApplicationStatus.fromJobStatus(
+                                                v.getJobStatus().get(3, SECONDS));
+                                        Thread.sleep(2000);
+                                    } catch (Exception e) {
+                                        break;
+                                    }
+                                }
+                                System.out.println(
+                                        getDateTime()
+                                                + " Success to stop flink job("
+                                                + v.getJobID()
+                                                + ")");
+                                int code = applicationStatus.processExitCode();
+                                System.out.println(
+                                        getDateTime() + " Flink process exit code is: " + code);
+                                System.exit(code);
+                            }
+                            accumulators = v.getAccumulators().get();
+                            if (null == accumulators.get(Metrics.READ_BYTES)) {
+                                continue;
+                            }
+                        } catch (ExecutionException e) {
+                            // Handle getAccumulators exception
+                            tryNum++;
+                            System.out.println(
+                                    getDateTime()
+                                            + " ERROR ["
+                                            + tryNum
+                                            + " times] "
+                                            + e.getMessage());
+                            // Increase the maximum number of attempts limit
+                            if (tryNum > 2) {
+                                System.out.println(
+                                        getDateTime()
+                                                + " try get accumulators num has reached the limit");
+                                System.out.println(ExceptionUtil.getErrorMessage(e));
+                                System.exit(-1);
+                            }
+                        } catch (Exception e) {
+                            System.out.println(getDateTime() + " -----------------------------");
+                            System.out.println(ExceptionUtil.getErrorMessage(e));
+                            System.out.println(
+                                    getDateTime()
+                                            + " yarn task maybe killed, error to execute this sql");
+                            System.exit(-1);
+                        }
+                    }
+                });
+    }
+
+    public static String getDateTime() {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        return dateFormat.format(new Date());
     }
 }

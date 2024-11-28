@@ -19,27 +19,24 @@
 package com.dtstack.chunjun.metrics;
 
 import com.dtstack.chunjun.constants.Metrics;
-import com.dtstack.chunjun.util.SysUtil;
+import com.dtstack.chunjun.util.ThreadUtil;
 
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.accumulators.LongCounter;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.metrics.MetricGroup;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author jiangbo
- * @date 2019/6/5
- */
+@Slf4j
 public class BaseMetric {
 
-    protected final Logger LOG = LoggerFactory.getLogger(getClass());
+    public static Long DELAY_PERIOD_MILL = 20000L;
 
-    private final Long delayPeriodMill = 20000L;
+    public static final String DELAY_PERIOD_MILL_KEY = "chunjun.delay_period_mill";
 
     private final MetricGroup chunjunMetricGroup;
 
@@ -48,6 +45,14 @@ public class BaseMetric {
     private final Map<String, LongCounter> metricCounters = new HashMap<>();
 
     public BaseMetric(RuntimeContext runtimeContext) {
+
+        ExecutionConfig.GlobalJobParameters params =
+                runtimeContext.getExecutionConfig().getGlobalJobParameters();
+        Map<String, String> confMap = params.toMap();
+        this.DELAY_PERIOD_MILL =
+                Long.parseLong(
+                        String.valueOf(confMap.getOrDefault(DELAY_PERIOD_MILL_KEY, "20000")));
+
         chunjunMetricGroup =
                 runtimeContext
                         .getMetricGroup()
@@ -84,10 +89,10 @@ public class BaseMetric {
 
     public void waitForReportMetrics() {
         try {
-            Thread.sleep(delayPeriodMill);
+            Thread.sleep(DELAY_PERIOD_MILL);
         } catch (InterruptedException e) {
-            SysUtil.sleep(delayPeriodMill);
-            LOG.warn("Task thread is interrupted");
+            ThreadUtil.sleepMilliseconds(DELAY_PERIOD_MILL);
+            log.warn("Task thread is interrupted");
         }
     }
 

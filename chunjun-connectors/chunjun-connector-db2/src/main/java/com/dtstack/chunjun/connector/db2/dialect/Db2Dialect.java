@@ -17,14 +17,15 @@
  */
 package com.dtstack.chunjun.connector.db2.dialect;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
-import com.dtstack.chunjun.connector.db2.converter.Db2ColumnConverter;
+import com.dtstack.chunjun.config.CommonConfig;
 import com.dtstack.chunjun.connector.db2.converter.Db2RawTypeConverter;
-import com.dtstack.chunjun.connector.db2.converter.Db2RowConverter;
+import com.dtstack.chunjun.connector.db2.converter.Db2SqlConverter;
+import com.dtstack.chunjun.connector.db2.converter.Db2SyncConverter;
+import com.dtstack.chunjun.connector.jdbc.conf.TableIdentify;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
@@ -39,17 +40,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * Company: www.dtstack.com
- *
- * @author xuchao
- * @date 2021-06-15
- */
 public class Db2Dialect implements JdbcDialect {
 
     private static final String DIALECT_NAME = "db2";
 
     private static final String DRIVER_NAME = "com.ibm.db2.jcc.DB2Driver";
+
+    private static final long serialVersionUID = -7835547832951441619L;
 
     @Override
     public String dialectName() {
@@ -62,7 +59,7 @@ public class Db2Dialect implements JdbcDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeConverter() {
         return Db2RawTypeConverter::apply;
     }
 
@@ -79,13 +76,13 @@ public class Db2Dialect implements JdbcDialect {
     @Override
     public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
             getRowConverter(RowType rowType) {
-        return new Db2RowConverter(rowType);
+        return new Db2SqlConverter(rowType);
     }
 
     @Override
     public AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getColumnConverter(RowType rowType, ChunJunCommonConf commonConf) {
-        return new Db2ColumnConverter(rowType, commonConf);
+            getColumnConverter(RowType rowType, CommonConfig commonConfig) {
+        return new Db2SyncConverter(rowType, commonConfig);
     }
 
     @Override
@@ -134,6 +131,11 @@ public class Db2Dialect implements JdbcDialect {
         return Optional.of(mergeIntoSql.toString());
     }
 
+    @Override
+    public boolean supportUpsert() {
+        return true;
+    }
+
     /** build T1."A"=T2."A" or T1."A"=nvl(T2."A",T1."A") */
     private String buildUpdateConnection(
             String[] fieldNames, String[] uniqueKeyFields, boolean allReplace) {
@@ -175,5 +177,15 @@ public class Db2Dialect implements JdbcDialect {
         return Arrays.stream(uniqueKeyFields)
                 .map(col -> "T1." + quoteIdentifier(col) + " = T2." + quoteIdentifier(col))
                 .collect(Collectors.joining(" and "));
+    }
+
+    @Override
+    public TableIdentify getTableIdentify(String schema, String table) {
+        return new TableIdentify(
+                null,
+                StringUtils.upperCase(schema),
+                StringUtils.upperCase(table),
+                this::quoteIdentifier,
+                false);
     }
 }

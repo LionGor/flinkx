@@ -23,11 +23,6 @@ import org.apache.flink.configuration.ConfigOptions;
 
 import java.util.regex.Pattern;
 
-/**
- * @author chuixue
- * @create 2021-06-16 20:23
- * @description
- */
 public class RedisOptions {
     public static final ConfigOption<Integer> REDIS_CRITICAL_TIME =
             ConfigOptions.key("REDIS_CRITICAL_TIME")
@@ -99,4 +94,7 @@ public class RedisOptions {
 
     public static final ConfigOption<String> REDIS_DATA_MODE =
             ConfigOptions.key("mode").stringType().noDefaultValue().withDescription("mode");
+
+    public static final ConfigOption<String> KEY_PREFIX =
+            ConfigOptions.key("keyPrefix").stringType().noDefaultValue().withDescription("mode");
 }

@@ -1,30 +1,28 @@
 /*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *  *
- *  *  * Licensed to the Apache Software Foundation (ASF) under one
- *  *  * or more contributor license agreements.  See the NOTICE file
- *  *  * distributed with this work for additional information
- *  *  * regarding copyright ownership.  The ASF licenses this file
- *  *  * to you under the Apache License, Version 2.0 (the
- *  *  * "License"); you may not use this file except in compliance
- *  *  * with the License.  You may obtain a copy of the License at
- *  *  *
- *  *  *     http://www.apache.org/licenses/LICENSE-2.0
- *  *  *
- *  *  * Unless required by applicable law or agreed to in writing, software
- *  *  * distributed under the License is distributed on an "AS IS" BASIS,
- *  *  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  * See the License for the specific language governing permissions and
- *  *  * limitations under the License.
- *  *
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package com.dtstack.chunjun.connector.influxdb.source;
 
-import com.dtstack.chunjun.connector.influxdb.conf.InfluxdbSourceConfig;
-import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbColumnConverter;
-import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbRawTypeConverter;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.influxdb.config.InfluxdbSourceConfig;
+import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbRawTypeMapper;
+import com.dtstack.chunjun.connector.influxdb.converter.InfluxdbSyncConverter;
 import com.dtstack.chunjun.connector.influxdb.enums.TimePrecisionEnums;
 import com.dtstack.chunjun.source.format.BaseRichInputFormat;
 import com.dtstack.chunjun.throwable.ReadRecordException;
@@ -35,11 +33,10 @@ import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
-import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -47,7 +44,6 @@ import org.influxdb.InfluxDB;
 import org.influxdb.dto.Query;
 import org.influxdb.dto.QueryResult;
 import org.influxdb.impl.InfluxDBImpl;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -66,24 +62,18 @@ import java.util.function.BiConsumer;
 import static com.dtstack.chunjun.connector.influxdb.constants.InfluxdbCons.QUERY_FIELD;
 import static com.dtstack.chunjun.connector.influxdb.constants.InfluxdbCons.QUERY_TAG;
 
-/**
- * Company：www.dtstack.com.
- *
- * @author shitou
- * @date 2022/3/8
- */
+@Slf4j
 public class InfluxdbInputFormat extends BaseRichInputFormat {
 
+    private static final long serialVersionUID = -4235337915973634115L;
     private InfluxdbSourceConfig config;
     private String queryTemplate;
-    private TimeUnit precision;
     private transient InfluxDB influxDB;
     private transient AtomicBoolean hasNext;
     private transient BlockingQueue<Map<String, Object>> queue;
-    private transient InfluxdbQuerySqlBuilder queryInfluxQLBuilder;
 
     @Override
-    protected InputSplit[] createInputSplitsInternal(int minNumSplits) throws Exception {
+    protected InputSplit[] createInputSplitsInternal(int minNumSplits) {
         InfluxdbInputSplit[] splits = new InfluxdbInputSplit[minNumSplits];
         for (int i = 0; i < minNumSplits; i++) {
             splits[i] = new InfluxdbInputSplit(i, minNumSplits, i);
@@ -93,39 +83,40 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
 
     @Override
     protected void openInternal(InputSplit inputSplit) throws IOException {
-        LOG.info("subTask[{}] inputSplit = {}.", indexOfSubTask, inputSplit);
+        log.info("subTask[{}] inputSplit = {}.", indexOfSubTask, inputSplit);
         this.queue = new LinkedBlockingQueue<>(config.getFetchSize() * 3);
         this.hasNext = new AtomicBoolean(true);
-        this.precision = TimePrecisionEnums.of(config.getEpoch()).getPrecision();
+        TimeUnit precision = TimePrecisionEnums.of(config.getEpoch()).getPrecision();
 
         connect();
 
-        Pair<List<String>, List<String>> pair = getTableMetadata();
-        Pair<List<String>, List<String>> columnPair =
+        Pair<List<String>, List<TypeConfig>> pair = getTableMetadata();
+        Pair<List<String>, List<TypeConfig>> columnPair =
                 ColumnBuildUtil.handleColumnList(
                         config.getColumn(), pair.getLeft(), pair.getRight());
         columnNameList = columnPair.getLeft();
         columnTypeList = columnPair.getRight();
         RowType rowType =
                 TableUtil.createRowType(
-                        columnNameList, columnTypeList, InfluxdbRawTypeConverter::apply);
+                        columnNameList, columnTypeList, InfluxdbRawTypeMapper::apply);
 
         // TODO add InfluxdbRawConverter
         setRowConverter(
-                new InfluxdbColumnConverter(
+                new InfluxdbSyncConverter(
                         rowType, config, columnNameList, config.getFormat(), precision));
 
-        this.queryInfluxQLBuilder = new InfluxdbQuerySqlBuilder(config, columnNameList);
+        InfluxdbQuerySqlBuilder queryInfluxQLBuilder =
+                new InfluxdbQuerySqlBuilder(config, columnNameList);
         this.queryTemplate = queryInfluxQLBuilder.buildSql();
         String querySql = buildQuerySql(inputSplit);
-        LOG.info("subTask[{}] querySql = {}.", indexOfSubTask, querySql);
+        log.info("subTask[{}] querySql = {}.", indexOfSubTask, querySql);
 
         this.influxDB.query(
                 new Query(querySql, config.getDatabase()),
                 config.getFetchSize(),
                 getConsumer(),
                 () -> {
-                    LOG.debug("subTask[{}] reader influxDB data is over.", indexOfSubTask);
+                    log.debug("subTask[{}] reader influxDB data is over.", indexOfSubTask);
                     hasNext.set(false);
                 },
                 throwable -> {
@@ -152,7 +143,7 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
     }
 
     @Override
-    protected void closeInternal() throws IOException {
+    protected void closeInternal() {
         if (influxDB != null) {
             influxDB.close();
             influxDB = null;
@@ -160,7 +151,7 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
     }
 
     @Override
-    public boolean reachedEnd() throws IOException {
+    public boolean reachedEnd() {
         return !hasNext.get() && queue.isEmpty();
     }
 
@@ -168,7 +159,7 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
         String querySql = queryTemplate;
 
         if (inputSplit == null) {
-            LOG.warn("inputSplit = null, Executing sql is: '{}'", querySql);
+            log.warn("inputSplit = null, Executing sql is: '{}'", querySql);
             return querySql;
         }
 
@@ -193,21 +184,16 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
                             .readTimeout(config.getQueryTimeOut(), TimeUnit.SECONDS);
             InfluxDB.ResponseFormat format = InfluxDB.ResponseFormat.valueOf(config.getFormat());
             clientBuilder.addInterceptor(
-                    new Interceptor() {
-                        @NotNull
-                        @Override
-                        public Response intercept(@NotNull Chain chain) throws IOException {
-                            Request request = chain.request();
-                            HttpUrl httpUrl =
-                                    request.url()
-                                            .newBuilder()
-                                            // add common parameter
-                                            .addQueryParameter("epoch", config.getEpoch())
-                                            .build();
-                            Request build = request.newBuilder().url(httpUrl).build();
-                            Response response = chain.proceed(build);
-                            return response;
-                        }
+                    chain -> {
+                        Request request = chain.request();
+                        HttpUrl httpUrl =
+                                request.url()
+                                        .newBuilder()
+                                        // add common parameter
+                                        .addQueryParameter("epoch", config.getEpoch())
+                                        .build();
+                        Request build = request.newBuilder().url(httpUrl).build();
+                        return chain.proceed(build);
                     });
             influxDB =
                     new InfluxDBImpl(
@@ -224,7 +210,7 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
                                 config.getUrl().get(0));
                 throw new ConnectException(errorMessage);
             }
-            LOG.info("connect influxdb successful. sever version :{}.", version);
+            log.info("connect influxdb successful. sever version :{}.", version);
         }
     }
 
@@ -237,19 +223,19 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
      *
      * @return fields list
      */
-    private Pair<List<String>, List<String>> getTableMetadata() {
+    private Pair<List<String>, List<TypeConfig>> getTableMetadata() {
         List<String> columnNames = new ArrayList<>();
-        List<String> columnTypes = new ArrayList<>();
+        List<TypeConfig> columnTypes = new ArrayList<>();
         QueryResult queryResult =
                 influxDB.query(
                         new Query(
                                 QUERY_FIELD.replace("${measurement}", config.getMeasurement()),
                                 config.getDatabase()));
-        List<QueryResult.Series> serieList = queryResult.getResults().get(0).getSeries();
-        if (!CollectionUtils.isEmpty(serieList)) {
-            for (List<Object> value : serieList.get(0).getValues()) {
+        List<QueryResult.Series> seriesList = queryResult.getResults().get(0).getSeries();
+        if (!CollectionUtils.isEmpty(seriesList)) {
+            for (List<Object> value : seriesList.get(0).getValues()) {
                 columnNames.add(String.valueOf(value.get(0)));
-                columnTypes.add(String.valueOf(value.get(1)));
+                columnTypes.add(TypeConfig.fromString(String.valueOf(value.get(1))));
             }
         }
 
@@ -263,17 +249,17 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
                         new Query(
                                 QUERY_TAG.replace("${measurement}", config.getMeasurement()),
                                 config.getDatabase()));
-        serieList = queryResult.getResults().get(0).getSeries();
-        if (!CollectionUtils.isEmpty(serieList)) {
-            for (List<Object> value : serieList.get(0).getValues()) {
+        seriesList = queryResult.getResults().get(0).getSeries();
+        if (!CollectionUtils.isEmpty(seriesList)) {
+            for (List<Object> value : seriesList.get(0).getValues()) {
                 columnNames.add(String.valueOf(value.get(0)));
                 // Tag keys and tag values are both strings.
-                columnTypes.add("string");
+                columnTypes.add(TypeConfig.fromString("string"));
             }
         }
         // add time field.
         columnNames.add("time");
-        columnTypes.add("long");
+        columnTypes.add(TypeConfig.fromString("long"));
         return Pair.of(columnNames, columnTypes);
     }
 
@@ -287,12 +273,12 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
             try {
                 if (CollectionUtils.isEmpty(queryResult.getResults())
                         || "DONE".equalsIgnoreCase(queryResult.getError())) {
-                    LOG.info("results is empty and this query is done.");
+                    log.info("results is empty and this query is done.");
                 } else {
                     for (QueryResult.Result result : queryResult.getResults()) {
-                        List<QueryResult.Series> serieList = result.getSeries();
-                        if (CollectionUtils.isNotEmpty(serieList)) {
-                            for (QueryResult.Series series : serieList) {
+                        List<QueryResult.Series> seriesList = result.getSeries();
+                        if (CollectionUtils.isNotEmpty(seriesList)) {
+                            for (QueryResult.Series series : seriesList) {
                                 List<String> columnList = series.getColumns();
                                 for (List<Object> values : series.getValues()) {
                                     Map<String, Object> data = new HashMap<>();
@@ -304,7 +290,7 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
                             }
                         } else {
                             // 没有数据
-                            LOG.debug(
+                            log.debug(
                                     "subTask[{}] reader influxDB series is empty.", indexOfSubTask);
                             hasNext.set(false);
                         }
@@ -325,12 +311,12 @@ public class InfluxdbInputFormat extends BaseRichInputFormat {
      * @param splitPk splitPk
      */
     private void judgeSplitPkCompliant(
-            List<String> columnNames, List<String> columnTypes, String splitPk) {
+            List<String> columnNames, List<TypeConfig> columnTypes, String splitPk) {
         Optional<String> key =
                 columnNames.stream().filter(name -> StringUtils.equals(splitPk, name)).findFirst();
         if (key.isPresent()) {
             int index = columnNames.indexOf(key.get());
-            if (!StringUtils.equalsIgnoreCase("integer", columnTypes.get(index))) {
+            if (!StringUtils.equalsIgnoreCase("integer", columnTypes.get(index).getType())) {
                 String errorMessage =
                         "spiltPk must be of type integer, but is actually "
                                 + columnTypes.get(index);

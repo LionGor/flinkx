@@ -18,24 +18,43 @@
 
 package com.dtstack.chunjun.connector.ftp.client.excel;
 
-import com.alibaba.excel.ExcelReader;
+import com.dtstack.chunjun.connector.ftp.extend.ftp.IFormatConfig;
 
-/** @author by dujie @Description @Date 2021/12/20 */
+import com.alibaba.excel.ExcelReader;
+import com.alibaba.excel.read.metadata.ReadSheet;
+
+import java.util.ArrayList;
+import java.util.List;
+
 public class ExcelReaderExecutor implements Runnable {
 
     private final ExcelReader reader;
+    private ExcelSubExceptionCarrier ec;
+    private IFormatConfig config;
 
-    public ExcelReaderExecutor(ExcelReader reader) {
+    public ExcelReaderExecutor(
+            ExcelReader reader, ExcelSubExceptionCarrier ec, IFormatConfig config) {
         this.reader = reader;
+        this.ec = ec;
+        this.config = config;
     }
 
     @Override
     public void run() {
         try {
-            reader.readAll();
-            close();
+            if (config.getSheetNo() != null) {
+                List<ReadSheet> readSheetList = new ArrayList<>();
+                for (int i = 0; i < config.getSheetNo().size(); i++) {
+                    readSheetList.add(new ReadSheet(config.getSheetNo().get(i)));
+                }
+                reader.read(readSheetList);
+            } else {
+                reader.readAll();
+            }
         } catch (Exception e) {
-            throw new RuntimeException("failed to read file.", e);
+            ec.setThrowable(e);
+        } finally {
+            close();
         }
     }
 

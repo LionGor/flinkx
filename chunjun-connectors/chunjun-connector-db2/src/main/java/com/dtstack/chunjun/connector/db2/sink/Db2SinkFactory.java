@@ -17,25 +17,20 @@
  */
 package com.dtstack.chunjun.connector.db2.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.connector.db2.dialect.Db2Dialect;
+import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormat;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcSinkFactory;
 
-/**
- * Company: www.dtstack.com
- *
- * @author xuchao
- * @date 2021-06-15
- */
 public class Db2SinkFactory extends JdbcSinkFactory {
 
-    public Db2SinkFactory(SyncConf syncConf) {
-        super(syncConf, new Db2Dialect());
+    public Db2SinkFactory(SyncConfig syncConfig) {
+        super(syncConfig, new Db2Dialect());
     }
 
     @Override
     protected JdbcOutputFormatBuilder getBuilder() {
-        return new JdbcOutputFormatBuilder(new Db2OutputFormat());
+        return new JdbcOutputFormatBuilder(new JdbcOutputFormat());
     }
 }

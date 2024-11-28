@@ -18,27 +18,17 @@
 
 package com.dtstack.chunjun.util;
 
-import com.dtstack.chunjun.conf.JobConf;
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.constants.ConfigConstant;
-
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author jiangbo
- * @date 2019/7/18
- */
+@Slf4j
 public class PrintUtil {
 
-    private static Logger LOG = LoggerFactory.getLogger(PrintUtil.class);
-
-    public static void printResult(Map<String, Object> result) {
+    public static String printResult(Map<String, Object> result) {
         List<String> names = Lists.newArrayList();
         List<String> values = Lists.newArrayList();
         result.forEach(
@@ -57,34 +47,17 @@ public class PrintUtil {
         builder.append("\n*********************************************\n");
         for (int i = 0; i < names.size(); i++) {
             String name = names.get(i);
-            builder.append(name + StringUtils.repeat(" ", maxLength - name.length()));
-            builder.append("|  ").append(values.get(i));
+            builder.append(name)
+                    .append(StringUtils.repeat(" ", maxLength - name.length()))
+                    .append("|  ")
+                    .append(values.get(i));
 
             if (i + 1 < names.size()) {
                 builder.append("\n");
             }
         }
         builder.append("\n*********************************************\n");
-        LOG.info(builder.toString());
-    }
-
-    /** 打印job配置信息 */
-    public static void printJobConfig(SyncConf config) {
-
-        // 深拷贝对象
-        JobConf job = JsonUtil.toObject(JsonUtil.toJson(config.getJob()), JobConf.class);
-
-        // 隐藏密码信息
-        Map<String, Object> readerParameter = job.getReader().getParameter();
-        if (readerParameter.containsKey(ConfigConstant.KEY_PASSWORD)) {
-            readerParameter.put(ConfigConstant.KEY_PASSWORD, ConfigConstant.KEY_CONFUSED_PASSWORD);
-        }
-
-        Map<String, Object> writerParameter = job.getWriter().getParameter();
-        if (writerParameter.containsKey(ConfigConstant.KEY_PASSWORD)) {
-            writerParameter.put(ConfigConstant.KEY_PASSWORD, ConfigConstant.KEY_CONFUSED_PASSWORD);
-        }
-        LOG.info(config.asString());
-        LOG.info("configInfo : \n{}", JsonUtil.toPrintJson(job));
+        log.info(builder.toString());
+        return builder.toString();
     }
 }

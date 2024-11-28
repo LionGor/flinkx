@@ -6,76 +6,72 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * <p>
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.dtstack.chunjun.connector.binlog.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.binlog.conf.BinlogConf;
-import com.dtstack.chunjun.connector.binlog.converter.BinlogColumnConverter;
-import com.dtstack.chunjun.connector.binlog.converter.BinlogRowConverter;
-import com.dtstack.chunjun.connector.binlog.converter.MysqlBinlogRawTypeConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.binlog.config.BinlogConfig;
+import com.dtstack.chunjun.connector.binlog.converter.BinlogSqlConverter;
+import com.dtstack.chunjun.connector.binlog.converter.BinlogSyncConverter;
+import com.dtstack.chunjun.connector.binlog.converter.MysqlBinlogRawTypeMapper;
+import com.dtstack.chunjun.connector.binlog.format.TimestampFormat;
 import com.dtstack.chunjun.connector.binlog.inputformat.BinlogInputFormatBuilder;
-import com.dtstack.chunjun.converter.AbstractCDCRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.AbstractCDCRawTypeMapper;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.JsonUtil;
 import com.dtstack.chunjun.util.TableUtil;
 
-import org.apache.flink.formats.json.TimestampFormat;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
-/**
- * @company: www.dtstack.com
- * @author: toutian
- * @create: 2019/7/4
- */
 public class BinlogSourceFactory extends SourceFactory {
 
-    private final BinlogConf binlogConf;
+    private final BinlogConfig binlogConfig;
 
-    public BinlogSourceFactory(SyncConf config, StreamExecutionEnvironment env) {
+    public BinlogSourceFactory(SyncConfig config, StreamExecutionEnvironment env) {
         super(config, env);
-        binlogConf =
+        binlogConfig =
                 JsonUtil.toObject(
-                        JsonUtil.toJson(config.getReader().getParameter()), BinlogConf.class);
-        binlogConf.setColumn(config.getReader().getFieldList());
-        super.initCommonConf(binlogConf);
+                        JsonUtil.toJson(config.getReader().getParameter()), BinlogConfig.class);
+        binlogConfig.setColumn(config.getReader().getFieldList());
+        super.initCommonConf(binlogConfig);
     }
 
     @Override
     public DataStream<RowData> createSource() {
         BinlogInputFormatBuilder builder = new BinlogInputFormatBuilder();
-        builder.setBinlogConf(binlogConf);
-        AbstractCDCRowConverter rowConverter;
+        builder.setBinlogConf(binlogConfig);
+        AbstractCDCRawTypeMapper rowConverter;
         if (useAbstractBaseColumn) {
             rowConverter =
-                    new BinlogColumnConverter(binlogConf.isPavingData(), binlogConf.isSplit());
+                    new BinlogSyncConverter(binlogConfig.isPavingData(), binlogConfig.isSplit());
         } else {
             final RowType rowType =
-                    TableUtil.createRowType(binlogConf.getColumn(), getRawTypeConverter());
+                    TableUtil.createRowType(binlogConfig.getColumn(), getRawTypeMapper());
             TimestampFormat format =
-                    "sql".equalsIgnoreCase(binlogConf.getTimestampFormat())
+                    "sql".equalsIgnoreCase(binlogConfig.getTimestampFormat())
                             ? TimestampFormat.SQL
                             : TimestampFormat.ISO_8601;
-            rowConverter = new BinlogRowConverter(rowType, format);
+            rowConverter = new BinlogSqlConverter(rowType, format);
         }
         builder.setRowConverter(rowConverter, useAbstractBaseColumn);
         return createInput(builder.finish());
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return MysqlBinlogRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return MysqlBinlogRawTypeMapper::apply;
     }
 }

@@ -19,32 +19,28 @@
 package com.dtstack.chunjun.sql.parser;
 
 import com.dtstack.chunjun.throwable.ChunJunSqlParseException;
-import com.dtstack.chunjun.util.DtStringUtil;
 import com.dtstack.chunjun.util.PwdUtil;
 import com.dtstack.chunjun.util.Splitter;
+import com.dtstack.chunjun.util.StringUtil;
 
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.api.StatementSet;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
-import org.apache.flink.shaded.guava18.com.google.common.base.Strings;
+import org.apache.flink.shaded.guava30.com.google.common.base.Strings;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.net.URL;
 import java.util.List;
 
-/**
- * Reason: Date: 2018/6/22 Company: www.dtstack.com
- *
- * @author xuchao
- */
 public class SqlParser {
 
     private static final char SQL_DELIMITER = ';';
 
     /**
      * flink support sql syntax CREATE TABLE sls_stream() with (); CREATE (TABLE|SCALA) FUNCTION
-     * fcnName WITH com.dtstack.com; insert into tb1 select * from tb2;
+     * fcnName WITH insert into tb1 select * from tb2;
      *
      * @param
      */
@@ -55,7 +51,7 @@ public class SqlParser {
             throw new IllegalArgumentException("SQL must be not empty!");
         }
 
-        sql = DtStringUtil.dealSqlComment(sql);
+        sql = StringUtil.dealSqlComment(sql);
         StatementSet statement = tableEnvironment.createStatementSet();
         Splitter splitter = new Splitter(SQL_DELIMITER);
         List<String> stmts = splitter.splitEscaped(sql);
@@ -81,10 +77,37 @@ public class SqlParser {
         AbstractStmtParser uploadFileStmtParser = new UploadFileStmtParser();
         AbstractStmtParser createFunctionStmtParser = new CreateFunctionStmtParser();
         AbstractStmtParser insertStmtParser = new InsertStmtParser();
+        AbstractStmtParser setStmtParser = new SetStmtParser();
 
         uploadFileStmtParser.setNextStmtParser(createFunctionStmtParser);
         createFunctionStmtParser.setNextStmtParser(insertStmtParser);
+        insertStmtParser.setNextStmtParser(setStmtParser);
 
         return uploadFileStmtParser;
+    }
+
+    public static Configuration parseSqlSet(String sql) {
+        Configuration configuration = new Configuration();
+        if (StringUtils.isBlank(sql)) {
+            throw new IllegalArgumentException("SQL must be not empty!");
+        }
+        sql = StringUtil.dealSqlComment(sql);
+        Splitter splitter = new Splitter(SQL_DELIMITER);
+        List<String> stmts = splitter.splitEscaped(sql);
+        SetStmtParser setStmtParser = new SetStmtParser();
+        stmts.stream()
+                .filter(stmt -> !Strings.isNullOrEmpty(stmt.trim()))
+                .forEach(
+                        stmt -> {
+                            try {
+                                if (setStmtParser.canHandle(stmt)) {
+                                    configuration.addAll(setStmtParser.execStmt(stmt));
+                                }
+                            } catch (Exception e) {
+                                throw new ChunJunSqlParseException(
+                                        PwdUtil.desensitization(stmt), e.getMessage(), e);
+                            }
+                        });
+        return configuration;
     }
 }

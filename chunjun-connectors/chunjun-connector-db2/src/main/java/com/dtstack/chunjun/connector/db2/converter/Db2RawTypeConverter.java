@@ -17,6 +17,7 @@
  */
 package com.dtstack.chunjun.connector.db2.converter;
 
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.throwable.UnsupportedTypeException;
 
 import org.apache.flink.table.api.DataTypes;
@@ -24,24 +25,19 @@ import org.apache.flink.table.types.DataType;
 
 import java.util.Locale;
 
-/**
- * convert db2 type to flink type Company: www.dtstack.com
- *
- * @author xuchao
- * @date 2021-06-15
- */
 public class Db2RawTypeConverter {
 
     /**
      * @param type db2 type
      * @return flink type
      */
-    public static DataType apply(String type) {
-        switch (type.toUpperCase(Locale.ENGLISH)) {
+    public static DataType apply(TypeConfig type) {
+        switch (type.getType().toUpperCase(Locale.ENGLISH)) {
             case "CHAR":
             case "VARCHAR":
             case "CLOB":
             case "XML":
+            case "LONG VARCHAR":
                 return DataTypes.STRING();
             case "SMALLINT":
             case "INT":
@@ -61,10 +57,10 @@ public class Db2RawTypeConverter {
             case "DATE":
                 return DataTypes.DATE();
             case "TIME":
-                return DataTypes.TIME();
+                return type.toTimeDataType(0);
             case "TIMESTAMP":
             case "DATETIME":
-                return DataTypes.TIMESTAMP(0);
+                return type.toTimestampDataType(6);
             case "BLOB":
             case "BOOLEAN":
                 return DataTypes.BYTES();

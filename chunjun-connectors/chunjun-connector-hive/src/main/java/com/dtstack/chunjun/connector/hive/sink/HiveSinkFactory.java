@@ -17,11 +17,11 @@
  */
 package com.dtstack.chunjun.connector.hive.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.hdfs.converter.HdfsRawTypeConverter;
-import com.dtstack.chunjun.connector.hive.conf.HiveConf;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.hdfs.converter.HdfsRawTypeMapper;
+import com.dtstack.chunjun.connector.hive.config.HiveConfig;
 import com.dtstack.chunjun.connector.hive.util.HiveUtil;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.sink.SinkFactory;
 import com.dtstack.chunjun.util.GsonUtil;
 
@@ -31,20 +31,15 @@ import org.apache.flink.table.data.RowData;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Date: 2021/06/22 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class HiveSinkFactory extends SinkFactory {
 
-    private final HiveConf hiveConf;
+    private final HiveConfig hiveConf;
 
-    public HiveSinkFactory(SyncConf config) {
+    public HiveSinkFactory(SyncConfig config) {
         super(config);
         hiveConf =
                 GsonUtil.GSON.fromJson(
-                        GsonUtil.GSON.toJson(config.getWriter().getParameter()), HiveConf.class);
+                        GsonUtil.GSON.toJson(config.getWriter().getParameter()), HiveConfig.class);
         hiveConf.setColumn(config.getWriter().getFieldList());
         hiveConf.setDistributeTableMapping(
                 HiveUtil.formatHiveDistributeInfo(hiveConf.getDistributeTable()));
@@ -77,7 +72,7 @@ public class HiveSinkFactory extends SinkFactory {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return HdfsRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return HdfsRawTypeMapper::apply;
     }
 }

@@ -30,36 +30,31 @@ import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 
-import org.apache.commons.lang.StringUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.concurrent.SynchronousQueue;
 
-/**
- * 读取socket传入的数据
- *
- * @author kunni@dtstack.com
- */
+@Slf4j
 public class SocketInputFormat extends BaseRichInputFormat {
+
+    private static final long serialVersionUID = -5069890927073688651L;
 
     private SocketConfig socketConfig;
 
     protected DtSocketClient client;
+
     protected SynchronousQueue<RowData> queue;
 
     public static final String KEY_EXIT0 = "exit0 ";
 
     public void setSocketConfig(SocketConfig socketConfig) {
         String[] hostPort =
-                org.apache.commons.lang.StringUtils.split(
-                        socketConfig.getAddress(), ConstantValue.COLON_SYMBOL);
+                StringUtils.split(socketConfig.getAddress(), ConstantValue.COLON_SYMBOL);
         socketConfig.setHost(hostPort[0]);
         socketConfig.setPort(Integer.parseInt(hostPort[1]));
         this.socketConfig = socketConfig;
         super.config = socketConfig;
-    }
-
-    public SocketConfig getSocketConfig() {
-        return socketConfig;
     }
 
     @Override
@@ -86,15 +81,19 @@ public class SocketInputFormat extends BaseRichInputFormat {
         try {
             row = queue.take();
             // 设置特殊字符串，作为失败标志
-            if (StringUtils.startsWith((String) ((GenericRowData) row).getField(0), KEY_EXIT0)) {
+            if (StringUtils.startsWith(
+                    String.valueOf(((GenericRowData) row).getField(0)), KEY_EXIT0)) {
                 throw new ReadRecordException(
                         "socket client lost connection completely, job failed "
                                 + ((GenericRowData) row).getField(0),
                         new Exception("receive data error"));
             }
+            row = rowConverter.toInternal(row);
         } catch (InterruptedException e) {
-            LOG.error("takeEvent interrupted error: {}", ExceptionUtil.getErrorMessage(e));
+            log.error("takeEvent interrupted error: {}", ExceptionUtil.getErrorMessage(e));
             throw new ReadRecordException(row.toString(), e);
+        } catch (Exception e) {
+            throw new ReadRecordException("", e, 0, row);
         }
         return row;
     }

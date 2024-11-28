@@ -18,31 +18,25 @@
 
 package com.dtstack.chunjun.connector.sqlserver.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcSinkFactory;
 import com.dtstack.chunjun.connector.jdbc.util.JdbcUtil;
-import com.dtstack.chunjun.connector.sqlserver.converter.SqlserverJtdsRawTypeConverter;
-import com.dtstack.chunjun.connector.sqlserver.converter.SqlserverMicroSoftRawTypeConverter;
+import com.dtstack.chunjun.connector.sqlserver.converter.SqlserverJtdsRawTypeMapper;
+import com.dtstack.chunjun.connector.sqlserver.converter.SqlserverMicroSoftRawTypeMapper;
 import com.dtstack.chunjun.connector.sqlserver.dialect.SqlserverDialect;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Company：www.dtstack.com
- *
- * @author shitou
- * @date 2021/5/19 20:11
- */
 public class SqlserverSinkFactory extends JdbcSinkFactory {
 
-    private boolean useJtdsDriver;
+    private final boolean useJtdsDriver;
 
-    public SqlserverSinkFactory(SyncConf syncConf) {
-        super(syncConf, null);
-        useJtdsDriver = jdbcConf.getJdbcUrl().startsWith("jdbc:jtds:sqlserver");
-        jdbcDialect = new SqlserverDialect(jdbcConf.isWithNoLock(), useJtdsDriver);
+    public SqlserverSinkFactory(SyncConfig syncConfig) {
+        super(syncConfig, null);
+        useJtdsDriver = jdbcConfig.getJdbcUrl().startsWith("jdbc:jtds:sqlserver");
+        jdbcDialect = new SqlserverDialect(jdbcConfig.isWithNoLock(), useJtdsDriver);
     }
 
     @Override
@@ -51,20 +45,20 @@ public class SqlserverSinkFactory extends JdbcSinkFactory {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         if (useJtdsDriver) {
-            return SqlserverJtdsRawTypeConverter::apply;
+            return SqlserverJtdsRawTypeMapper::apply;
         }
-        return SqlserverMicroSoftRawTypeConverter::apply;
+        return SqlserverMicroSoftRawTypeMapper::apply;
     }
 
     /** table字段有可能是[schema].[table]格式 需要转换为对应的schema 和 table 字段* */
     @Override
     protected void resetTableInfo() {
-        if (jdbcConf.getTable().startsWith("[")
-                && jdbcConf.getTable().endsWith("]")
-                && StringUtils.isBlank(jdbcConf.getSchema())) {
-            JdbcUtil.resetSchemaAndTable(jdbcConf, "\\[", "\\]");
+        if (jdbcConfig.getTable().startsWith("[")
+                && jdbcConfig.getTable().endsWith("]")
+                && StringUtils.isBlank(jdbcConfig.getSchema())) {
+            JdbcUtil.resetSchemaAndTable(jdbcConfig, "\\[", "\\]");
         } else {
             super.resetTableInfo();
         }

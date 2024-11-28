@@ -18,22 +18,20 @@
 
 package com.dtstack.chunjun.connector.greenplum.dialect;
 
-import com.dtstack.chunjun.connector.greenplum.converter.GreenplumRawTypeConverter;
+import com.dtstack.chunjun.connector.greenplum.converter.GreenplumRawTypeMapper;
 import com.dtstack.chunjun.connector.postgresql.dialect.PostgresqlDialect;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 
 import java.util.Optional;
 
-/**
- * company www.dtstack.com
- *
- * @author jier
- */
 public class GreenplumDialect extends PostgresqlDialect {
+
+    private static final long serialVersionUID = -3047306110114350759L;
 
     private static final String DIALECT_NAME = "Greenplum";
     private static final String DRIVER = "com.pivotal.jdbc.GreenplumDriver";
-    private static final String URL_START = "jdbc:pivotal:greenplum:";
+    public static final String URL_START = "jdbc:pivotal:greenplum:";
+    public static final String DATABASE_NAME = ";DatabaseName=";
 
     @Override
     public String dialectName() {
@@ -46,13 +44,18 @@ public class GreenplumDialect extends PostgresqlDialect {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return GreenplumRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeConverter() {
+        return GreenplumRawTypeMapper::apply;
     }
 
     @Override
     public Optional<String> defaultDriverName() {
         return Optional.of(DRIVER);
+    }
+
+    @Override
+    public boolean supportUpsert() {
+        return false;
     }
 
     @Override

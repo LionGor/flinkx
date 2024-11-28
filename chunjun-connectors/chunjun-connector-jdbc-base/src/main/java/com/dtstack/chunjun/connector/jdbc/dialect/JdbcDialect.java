@@ -18,15 +18,25 @@
 
 package com.dtstack.chunjun.connector.jdbc.dialect;
 
-import com.dtstack.chunjun.conf.ChunJunCommonConf;
-import com.dtstack.chunjun.connector.jdbc.converter.JdbcColumnConverter;
-import com.dtstack.chunjun.connector.jdbc.converter.JdbcRowConverter;
+import com.dtstack.chunjun.config.CommonConfig;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.jdbc.conf.TableIdentify;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
+import com.dtstack.chunjun.connector.jdbc.converter.JdbcSqlConverter;
+import com.dtstack.chunjun.connector.jdbc.converter.JdbcSyncConverter;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcInputSplit;
 import com.dtstack.chunjun.connector.jdbc.statement.FieldNamedPreparedStatement;
 import com.dtstack.chunjun.connector.jdbc.util.JdbcUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.DateTypeUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.KeyUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.NumericTypeUtil;
+import com.dtstack.chunjun.connector.jdbc.util.key.TimestampTypeUtil;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
+import com.dtstack.chunjun.enums.ColumnType;
+import com.dtstack.chunjun.throwable.ChunJunRuntimeException;
 
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.types.logical.LogicalType;
@@ -34,14 +44,22 @@ import org.apache.flink.table.types.logical.RowType;
 
 import io.vertx.core.json.JsonArray;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.Serializable;
+import java.math.BigInteger;
+import java.sql.Connection;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.dtstack.chunjun.connector.jdbc.util.JdbcUtil.checkTableExist;
 import static java.lang.String.format;
 
 /** Handle the SQL dialect of jdbc driver. */
@@ -63,7 +81,7 @@ public interface JdbcDialect extends Serializable {
     boolean canHandle(String url);
 
     /** get jdbc RawTypeConverter */
-    RawTypeConverter getRawTypeConverter();
+    RawTypeMapper getRawTypeConverter();
 
     /**
      * Get converter that convert jdbc object and Flink internal object each other.
@@ -73,7 +91,7 @@ public interface JdbcDialect extends Serializable {
      */
     default AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
             getRowConverter(RowType rowType) {
-        return new JdbcRowConverter(rowType);
+        return new JdbcSqlConverter(rowType);
     }
 
     /**
@@ -92,8 +110,8 @@ public interface JdbcDialect extends Serializable {
      * @return a row converter for the database
      */
     default AbstractRowConverter<ResultSet, JsonArray, FieldNamedPreparedStatement, LogicalType>
-            getColumnConverter(RowType rowType, ChunJunCommonConf commonConf) {
-        return new JdbcColumnConverter(rowType, commonConf);
+            getColumnConverter(RowType rowType, CommonConfig commonConfig) {
+        return new JdbcSyncConverter(rowType, commonConfig);
     }
 
     /**
@@ -140,6 +158,10 @@ public interface JdbcDialect extends Serializable {
             String[] uniqueKeyFields,
             boolean allReplace) {
         return Optional.empty();
+    }
+
+    default boolean supportUpsert() {
+        return false;
     }
 
     default Optional<String> getReplaceStatement(
@@ -207,11 +229,12 @@ public interface JdbcDialect extends Serializable {
             String schema, String tableName, String[] fieldNames, String[] conditionFields) {
         String setClause =
                 Arrays.stream(fieldNames)
-                        .map(f -> format("%s = ?", quoteIdentifier(f)))
+                        .filter(f -> !Arrays.asList(conditionFields).contains(f))
+                        .map(f -> format("%s = :%s", quoteIdentifier(f), f))
                         .collect(Collectors.joining(", "));
         String conditionClause =
                 Arrays.stream(conditionFields)
-                        .map(f -> format("%s = ?", quoteIdentifier(f)))
+                        .map(f -> format("%s = :%s", quoteIdentifier(f), f))
                         .collect(Collectors.joining(" AND "));
         return "UPDATE "
                 + buildTableInfoWithSchema(schema, tableName)
@@ -221,19 +244,65 @@ public interface JdbcDialect extends Serializable {
                 + conditionClause;
     }
 
-    /**
-     * Get delete one row statement by condition fields, default not use limit 1, because limit 1 is
-     * a sql dialect.
-     */
-    default String getDeleteStatement(String schema, String tableName, String[] conditionFields) {
+    default String getKeyedDeleteStatement(
+            String schema, String tableName, List<String> conditionFieldList) {
         String conditionClause =
-                Arrays.stream(conditionFields)
+                conditionFieldList.stream()
                         .map(f -> format("%s = :%s", quoteIdentifier(f), f))
                         .collect(Collectors.joining(" AND "));
         return "DELETE FROM "
                 + buildTableInfoWithSchema(schema, tableName)
                 + " WHERE "
                 + conditionClause;
+    }
+
+    /**
+     * Get delete one row statement by condition fields, default not use limit 1, because limit 1 is
+     * a sql dialect.
+     */
+    default String getDeleteStatement(
+            String schema,
+            String tableName,
+            String[] conditionFields,
+            String[] nullConditionFields) {
+        ArrayList<String> nullFields = new ArrayList<>();
+        nullFields.addAll(Arrays.asList(nullConditionFields));
+
+        List<String> conditions =
+                Arrays.stream(conditionFields)
+                        .filter(i -> !nullFields.contains(i))
+                        .map(f -> format("%s = :%s", quoteIdentifier(f), f))
+                        .collect(Collectors.toList());
+
+        Arrays.stream(nullConditionFields)
+                .map(f -> format("%s IS NULL", quoteIdentifier(f)))
+                .forEach(i -> conditions.add(i));
+
+        String conditionClause = String.join(" AND ", conditions);
+        return "DELETE FROM "
+                + buildTableInfoWithSchema(schema, tableName)
+                + " WHERE "
+                + conditionClause;
+    }
+
+    /** Get select fields statement by condition fields. Default use SELECT. */
+    default String getSelectFromStatement(String schema, String tableName, String[] fields) {
+        if (fields == null || fields.length == 0) {
+            throw new IllegalArgumentException("fields can not be null or empty");
+        }
+
+        String selectExpressions =
+                Arrays.stream(fields).map(this::quoteIdentifier).collect(Collectors.joining(", "));
+        String fieldExpressions =
+                Arrays.stream(fields)
+                        .map(f -> format("%s = :%s", quoteIdentifier(f), f))
+                        .collect(Collectors.joining(" AND "));
+        return "SELECT "
+                + selectExpressions
+                + " FROM "
+                + buildTableInfoWithSchema(schema, tableName)
+                + " WHERE "
+                + fieldExpressions;
     }
 
     /** Get select fields statement by condition fields. Default use SELECT. */
@@ -369,5 +438,91 @@ public interface JdbcDialect extends Serializable {
         return String.format(
                 " mod(%s, %s) = %s",
                 quoteIdentifier(splitPkName), split.getTotalNumberOfSplits(), split.getMod());
+    }
+
+    default KeyUtil<?, BigInteger> initKeyUtil(String incrementName, TypeConfig incrementType) {
+        switch (ColumnType.getType(incrementType.getType())) {
+            case TIMESTAMP:
+            case DATETIME:
+                return new TimestampTypeUtil();
+            case DATE:
+                return new DateTypeUtil();
+            default:
+                if (ColumnType.isNumberType(incrementType.getType())) {
+                    return new NumericTypeUtil();
+                } else {
+                    throw new ChunJunRuntimeException(
+                            String.format(
+                                    "Unsupported columnType [%s], columnName [%s]",
+                                    incrementType, incrementName));
+                }
+        }
+    }
+
+    default Pair<List<String>, List<TypeConfig>> getTableMetaData(
+            Connection dbConn, JdbcConfig jdbcConfig) {
+        return getTableMetaData(
+                dbConn,
+                jdbcConfig.getSchema(),
+                jdbcConfig.getTable(),
+                jdbcConfig.getQueryTimeOut(),
+                jdbcConfig.getCustomSql(),
+                jdbcConfig.getColumn().stream()
+                        .filter(fieldConf -> StringUtils.isBlank(fieldConf.getValue()))
+                        .filter(fieldConf -> !fieldConf.getName().equals("*"))
+                        .map(fieldConf -> quoteIdentifier(fieldConf.getName()))
+                        .collect(Collectors.toList()));
+    }
+
+    default Pair<List<String>, List<TypeConfig>> getTableMetaData(
+            Connection dbConn,
+            String schema,
+            String table,
+            int queryTimeout,
+            String customSql,
+            List<String> selectedColumnList) {
+        if ("*".equalsIgnoreCase(table)) {
+            // all table,return empty metadata
+            return Pair.of(new LinkedList<>(), new LinkedList<>());
+        }
+        TableIdentify tableIdentify = getTableIdentify(schema, table);
+        checkTableExist(dbConn, tableIdentify);
+        String metadataQuerySql =
+                getMetadataQuerySql(selectedColumnList, customSql, tableIdentify.getTableInfo());
+
+        return JdbcUtil.getTableMetaData(dbConn, metadataQuerySql, queryTimeout, typeBuilder());
+    }
+
+    default String getMetadataQuerySql(
+            List<String> selectedColumnList, String customSql, String tableInfo) {
+        if (StringUtils.isNotBlank(customSql)) {
+            return String.format("select * from (%s) custom where 1=2", customSql);
+        }
+
+        String columnStr;
+        if (selectedColumnList == null || selectedColumnList.isEmpty()) {
+            columnStr = "*";
+        } else {
+            columnStr = String.join(",", selectedColumnList);
+        }
+        return String.format(getMetadataQuerySql(), columnStr, tableInfo);
+    }
+
+    default String getMetadataQuerySql() {
+        return "select %s from %s where 1=2";
+    }
+
+    default Function<Tuple3<String, Integer, Integer>, TypeConfig> typeBuilder() {
+        return (typePsTuple -> {
+            String typeName = typePsTuple.f0;
+            TypeConfig typeConfig = TypeConfig.fromString(typeName);
+            typeConfig.setPrecision(typePsTuple.f1);
+            typeConfig.setScale(typePsTuple.f2);
+            return typeConfig;
+        });
+    }
+
+    default TableIdentify getTableIdentify(String confSchema, String confTable) {
+        return new TableIdentify(null, confSchema, confTable, this::quoteIdentifier, false);
     }
 }

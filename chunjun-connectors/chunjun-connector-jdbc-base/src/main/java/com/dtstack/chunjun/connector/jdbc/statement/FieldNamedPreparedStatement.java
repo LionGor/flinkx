@@ -68,7 +68,8 @@ public interface FieldNamedPreparedStatement extends AutoCloseable {
      */
     static FieldNamedPreparedStatement prepareStatement(
             Connection connection, String sql, String[] fieldNames) throws SQLException {
-        return FieldNamedPreparedStatementImpl.prepareStatement(connection, sql, fieldNames);
+        return FieldNamedPreparedStatementImpl.prepareStatement(
+                connection, sql, fieldNames, new String[0]);
     }
 
     /**
@@ -254,6 +255,8 @@ public interface FieldNamedPreparedStatement extends AutoCloseable {
 
     void setArray(int fieldIndex, Array array) throws SQLException;
 
+    boolean isDelete();
+
     /**
      * Releases this <code>Statement</code> object's database and JDBC resources immediately instead
      * of waiting for this to happen when it is automatically closed. It is generally good practice
@@ -263,4 +266,10 @@ public interface FieldNamedPreparedStatement extends AutoCloseable {
      * @see PreparedStatement#close()
      */
     void close() throws SQLException;
+
+    /** *Reopen the Statement */
+    void reOpen(Connection connection) throws SQLException;
+
+    /** get the connection */
+    Connection getConnection() throws SQLException;
 }

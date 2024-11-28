@@ -18,10 +18,10 @@
 
 package com.dtstack.chunjun.connector.emqx.source;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.emqx.conf.EmqxConf;
-import com.dtstack.chunjun.connector.emqx.converter.EmqxColumnConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.emqx.config.EmqxConfig;
+import com.dtstack.chunjun.connector.emqx.converter.EmqxSyncConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.JsonUtil;
 
@@ -29,27 +29,22 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.data.RowData;
 
-/**
- * @author chuixue
- * @create 2021-06-01 20:07
- * @description
- */
 public class EmqxSourceFactory extends SourceFactory {
 
-    private final EmqxConf emqxConf;
+    private final EmqxConfig emqxConfig;
 
-    public EmqxSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
-        super(syncConf, env);
-        emqxConf =
+    public EmqxSourceFactory(SyncConfig syncConfig, StreamExecutionEnvironment env) {
+        super(syncConfig, env);
+        emqxConfig =
                 JsonUtil.toObject(
-                        JsonUtil.toJson(syncConf.getReader().getParameter()), EmqxConf.class);
-        emqxConf.setColumn(syncConf.getReader().getFieldList());
-        super.initCommonConf(emqxConf);
-        emqxConf.setParallelism(1);
+                        JsonUtil.toJson(syncConfig.getReader().getParameter()), EmqxConfig.class);
+        emqxConfig.setColumn(syncConfig.getReader().getFieldList());
+        super.initCommonConf(emqxConfig);
+        emqxConfig.setParallelism(1);
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return null;
     }
 
@@ -59,8 +54,8 @@ public class EmqxSourceFactory extends SourceFactory {
             throw new UnsupportedOperationException("Emqx not support transform");
         }
         EmqxInputFormatBuilder builder = new EmqxInputFormatBuilder();
-        builder.setEmqxConf(emqxConf);
-        builder.setRowConverter(new EmqxColumnConverter(emqxConf), useAbstractBaseColumn);
+        builder.setEmqxConf(emqxConfig);
+        builder.setRowConverter(new EmqxSyncConverter(emqxConfig), useAbstractBaseColumn);
         return createInput(builder.finish());
     }
 }

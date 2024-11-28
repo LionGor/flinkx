@@ -18,11 +18,11 @@
 
 package com.dtstack.chunjun.connector.clickhouse.sink;
 
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcConf;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormat;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 public class ClickhouseOutputFormatBuilder extends JdbcOutputFormatBuilder {
 
@@ -32,16 +32,9 @@ public class ClickhouseOutputFormatBuilder extends JdbcOutputFormatBuilder {
 
     @Override
     protected void checkFormat() {
-        JdbcConf jdbcConf = format.getJdbcConf();
+        JdbcConfig jdbcConfig = format.getJdbcConfig();
         StringBuilder sb = new StringBuilder(256);
-        // username and password is nullable
-        //        if (StringUtils.isBlank(jdbcConf.getUsername())) {
-        //            sb.append("No username supplied;\n");
-        //        }
-        //        if (StringUtils.isBlank(jdbcConf.getPassword())) {
-        //            sb.append("No password supplied;\n");
-        //        }
-        if (StringUtils.isBlank(jdbcConf.getJdbcUrl())) {
+        if (StringUtils.isBlank(jdbcConfig.getJdbcUrl())) {
             sb.append("No jdbc url supplied;\n");
         }
         if (sb.length() > 0) {

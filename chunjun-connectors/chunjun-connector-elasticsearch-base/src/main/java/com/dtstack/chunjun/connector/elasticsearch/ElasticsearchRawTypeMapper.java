@@ -18,6 +18,7 @@
 
 package com.dtstack.chunjun.connector.elasticsearch;
 
+import com.dtstack.chunjun.config.TypeConfig;
 import com.dtstack.chunjun.throwable.UnsupportedTypeException;
 
 import org.apache.flink.table.api.DataTypes;
@@ -25,19 +26,15 @@ import org.apache.flink.table.types.DataType;
 
 import org.elasticsearch.index.mapper.ObjectMapper;
 
-import java.util.Locale;
-
 public class ElasticsearchRawTypeMapper {
 
     /**
-     * Inspired by
-     * https://www.elastic.co/guide/en/elasticsearch/reference/current/sql-data-types.html
-     *
-     * @param type
-     * @return
+     * Inspired by <a
+     * href="https://www.elastic.co/guide/en/elasticsearch/reference/current/sql-data-types.html">data
+     * type</a>
      */
-    public static DataType apply(String type) {
-        switch (type.toUpperCase(Locale.ENGLISH)) {
+    public static DataType apply(TypeConfig type) {
+        switch (type.getType()) {
                 // Numeric Types
             case "BOOLEAN":
                 return DataTypes.BOOLEAN();
@@ -54,9 +51,10 @@ public class ElasticsearchRawTypeMapper {
             case "DOUBLE":
                 return DataTypes.DOUBLE();
             case "TEXT":
-                return DataTypes.STRING();
+            case "STRING":
             case "BINARY":
-                return DataTypes.BYTES();
+            case "KEYWORD":
+                return DataTypes.STRING();
             case "DATE":
                 return DataTypes.TIMESTAMP();
             case "OBJECT":

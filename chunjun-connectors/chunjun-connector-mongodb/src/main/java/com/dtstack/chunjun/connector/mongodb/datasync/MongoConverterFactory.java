@@ -18,10 +18,11 @@
 
 package com.dtstack.chunjun.connector.mongodb.datasync;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.connector.mongodb.converter.MongodbColumnConverter;
-import com.dtstack.chunjun.connector.mongodb.converter.MongodbRawTypeConverter;
-import com.dtstack.chunjun.connector.mongodb.converter.MongodbRowConverter;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.mongodb.converter.MongodbRawTypeMapper;
+import com.dtstack.chunjun.connector.mongodb.converter.MongodbSqlConverter;
+import com.dtstack.chunjun.connector.mongodb.converter.MongodbSyncConverter;
 import com.dtstack.chunjun.util.TableUtil;
 
 import org.apache.flink.table.types.logical.RowType;
@@ -29,35 +30,30 @@ import org.apache.flink.table.types.logical.RowType;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author Ada Wong
- * @program chunjun
- * @create 2021/06/24
- */
 public class MongoConverterFactory {
 
     RowType rowType;
     List<String> fieldNames;
-    List<String> fieldTypes;
-    MongodbDataSyncConf mongodbDataSyncConf;
+    List<TypeConfig> fieldTypes;
+    MongodbDataSyncConfig mongodbDataSyncConfig;
 
-    public MongoConverterFactory(MongodbDataSyncConf mongodbDataSyncConf) {
-        this.mongodbDataSyncConf = mongodbDataSyncConf;
+    public MongoConverterFactory(MongodbDataSyncConfig mongodbDataSyncConfig) {
+        this.mongodbDataSyncConfig = mongodbDataSyncConfig;
         fieldNames = new ArrayList<>();
         fieldTypes = new ArrayList<>();
-        List<FieldConf> fields = mongodbDataSyncConf.getColumn();
-        for (FieldConf field : fields) {
+        List<FieldConfig> fields = mongodbDataSyncConfig.getColumn();
+        for (FieldConfig field : fields) {
             fieldNames.add(field.getName());
             fieldTypes.add(field.getType());
         }
-        rowType = TableUtil.createRowType(fieldNames, fieldTypes, MongodbRawTypeConverter::apply);
+        rowType = TableUtil.createRowType(fieldNames, fieldTypes, MongodbRawTypeMapper::apply);
     }
 
-    public MongodbRowConverter createRowConverter() {
-        return new MongodbRowConverter(rowType, fieldNames.toArray(new String[] {}));
+    public MongodbSqlConverter createRowConverter() {
+        return new MongodbSqlConverter(rowType, fieldNames.toArray(new String[] {}));
     }
 
-    public MongodbColumnConverter createColumnConverter() {
-        return new MongodbColumnConverter(rowType, mongodbDataSyncConf);
+    public MongodbSyncConverter createColumnConverter() {
+        return new MongodbSyncConverter(rowType, mongodbDataSyncConfig);
     }
 }

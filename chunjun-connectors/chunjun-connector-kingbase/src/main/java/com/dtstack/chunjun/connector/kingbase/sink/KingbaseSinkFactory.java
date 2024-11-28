@@ -17,25 +17,13 @@
  */
 package com.dtstack.chunjun.connector.kingbase.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormatBuilder;
+import com.dtstack.chunjun.config.SyncConfig;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcSinkFactory;
 import com.dtstack.chunjun.connector.kingbase.dialect.KingbaseDialect;
 
-/**
- * @description:
- * @program: ChunJun
- * @author: lany
- * @create: 2021/05/13 20:10
- */
 public class KingbaseSinkFactory extends JdbcSinkFactory {
 
-    public KingbaseSinkFactory(SyncConf syncConf) {
-        super(syncConf, new KingbaseDialect());
-    }
-
-    @Override
-    protected JdbcOutputFormatBuilder getBuilder() {
-        return new JdbcOutputFormatBuilder(new KingbaseOutputFormat());
+    public KingbaseSinkFactory(SyncConfig syncConfig) {
+        super(syncConfig, new KingbaseDialect());
     }
 }

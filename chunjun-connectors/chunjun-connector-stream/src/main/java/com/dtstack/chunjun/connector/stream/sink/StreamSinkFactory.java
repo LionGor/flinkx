@@ -18,13 +18,13 @@
 
 package com.dtstack.chunjun.connector.stream.sink;
 
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.stream.conf.StreamConf;
-import com.dtstack.chunjun.connector.stream.converter.StreamColumnConverter;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.stream.config.StreamConfig;
 import com.dtstack.chunjun.connector.stream.converter.StreamRawTypeConverter;
-import com.dtstack.chunjun.connector.stream.converter.StreamRowConverter;
+import com.dtstack.chunjun.connector.stream.converter.StreamSqlConverter;
+import com.dtstack.chunjun.connector.stream.converter.StreamSyncConverter;
 import com.dtstack.chunjun.converter.AbstractRowConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.sink.SinkFactory;
 import com.dtstack.chunjun.util.GsonUtil;
 import com.dtstack.chunjun.util.TableUtil;
@@ -34,35 +34,31 @@ import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
-/**
- * Date: 2021/04/07 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class StreamSinkFactory extends SinkFactory {
 
-    private final StreamConf streamConf;
+    private final StreamConfig streamConfig;
 
-    public StreamSinkFactory(SyncConf config) {
+    public StreamSinkFactory(SyncConfig config) {
         super(config);
-        streamConf =
+        streamConfig =
                 GsonUtil.GSON.fromJson(
-                        GsonUtil.GSON.toJson(config.getWriter().getParameter()), StreamConf.class);
-        streamConf.setColumn(config.getWriter().getFieldList());
-        super.initCommonConf(streamConf);
+                        GsonUtil.GSON.toJson(config.getWriter().getParameter()),
+                        StreamConfig.class);
+        streamConfig.setColumn(config.getWriter().getFieldList());
+        super.initCommonConf(streamConfig);
     }
 
     @Override
     public DataStreamSink<RowData> createSink(DataStream<RowData> dataSet) {
         StreamOutputFormatBuilder builder = new StreamOutputFormatBuilder();
-        builder.setStreamConf(streamConf);
+        builder.setStreamConfig(streamConfig);
         AbstractRowConverter converter;
         if (useAbstractBaseColumn) {
-            converter = new StreamColumnConverter(streamConf);
+            converter = new StreamSyncConverter(streamConfig);
         } else {
             final RowType rowType =
-                    TableUtil.createRowType(streamConf.getColumn(), getRawTypeConverter());
-            converter = new StreamRowConverter(rowType);
+                    TableUtil.createRowType(streamConfig.getColumn(), getRawTypeMapper());
+            converter = new StreamSqlConverter(rowType);
         }
 
         builder.setRowConverter(converter, useAbstractBaseColumn);
@@ -70,7 +66,7 @@ public class StreamSinkFactory extends SinkFactory {
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
+    public RawTypeMapper getRawTypeMapper() {
         return StreamRawTypeConverter::apply;
     }
 }

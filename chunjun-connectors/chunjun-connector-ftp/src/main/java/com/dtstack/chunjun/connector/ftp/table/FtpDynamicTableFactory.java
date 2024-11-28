@@ -18,16 +18,24 @@
 
 package com.dtstack.chunjun.connector.ftp.table;
 
-import com.dtstack.chunjun.connector.ftp.conf.FtpConfig;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.TypeConfig;
+import com.dtstack.chunjun.connector.ftp.config.ConfigConstants;
+import com.dtstack.chunjun.connector.ftp.config.FtpConfig;
+import com.dtstack.chunjun.connector.ftp.enums.CompressType;
 import com.dtstack.chunjun.connector.ftp.options.FtpOptions;
 import com.dtstack.chunjun.connector.ftp.sink.FtpDynamicTableSink;
 import com.dtstack.chunjun.connector.ftp.source.FtpDynamicTableSource;
+import com.dtstack.chunjun.table.options.BaseFileOptions;
+import com.dtstack.chunjun.throwable.UnsupportedTypeException;
+import com.dtstack.chunjun.util.StringUtil;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.catalog.Column;
+import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.format.EncodingFormat;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
@@ -38,16 +46,16 @@ import org.apache.flink.table.factories.DynamicTableSinkFactory;
 import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import org.apache.flink.table.factories.FactoryUtil;
 import org.apache.flink.table.factories.SerializationFormatFactory;
-import org.apache.flink.table.utils.TableSchemaUtils;
 
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-/**
- * @program chunjun
- * @author: xiuzhu
- * @create: 2021/06/19
- */
 public class FtpDynamicTableFactory implements DynamicTableSourceFactory, DynamicTableSinkFactory {
 
     private static final String IDENTIFIER = "ftp-x";
@@ -61,6 +69,20 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
         ftpConfig.setPassword(config.get(FtpOptions.PASSWORD));
 
         ftpConfig.setEncoding(config.get(FtpOptions.ENCODING));
+        ftpConfig.setFirstLineHeader(config.get(FtpOptions.FIRST_LINE_HEADER));
+        ftpConfig.setFtpFileName(config.get(FtpOptions.FILE_NAME));
+        ftpConfig.setMaxFileSize(config.get(BaseFileOptions.MAX_FILE_SIZE));
+        ftpConfig.setCompressType(config.get(FtpOptions.COMPRESS_TYPE));
+        ftpConfig.setFileType(config.get(FtpOptions.FILE_TYPE));
+        ftpConfig.setNextCheckRows(config.get(BaseFileOptions.NEXT_CHECK_ROWS));
+        ftpConfig.setWriteMode(config.get(BaseFileOptions.WRITE_MODE));
+
+        if (!ConfigConstants.DEFAULT_FIELD_DELIMITER.equals(
+                config.get(FtpOptions.FIELD_DELIMITER))) {
+            String fieldDelimiter =
+                    StringUtil.convertRegularExpr(config.get(FtpOptions.FIELD_DELIMITER));
+            ftpConfig.setFieldDelimiter(fieldDelimiter);
+        }
 
         if (config.get(FtpOptions.TIMEOUT) != null) {
             ftpConfig.setTimeout(config.get(FtpOptions.TIMEOUT));
@@ -76,6 +98,23 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
             ftpConfig.setPort(config.get(FtpOptions.PORT));
         }
 
+        if (config.get(FtpOptions.FIRST_LINE_HEADER) != null) {
+            ftpConfig.setFirstLineHeader(config.get(FtpOptions.FIRST_LINE_HEADER));
+        }
+        if (StringUtils.isNotBlank(config.get(FtpOptions.SHEET_NO))) {
+            List<Integer> sheetNo =
+                    Arrays.stream(config.get(FtpOptions.SHEET_NO).split(","))
+                            .map(Integer::parseInt)
+                            .collect(Collectors.toList());
+            ftpConfig.setSheetNo(sheetNo);
+        }
+        if (StringUtils.isNotBlank(config.get(FtpOptions.COLUMN_INDEX))) {
+            List<Integer> columnIndex =
+                    Arrays.stream(config.get(FtpOptions.COLUMN_INDEX).split(","))
+                            .map(Integer::parseInt)
+                            .collect(Collectors.toList());
+            ftpConfig.setColumnIndex(columnIndex);
+        }
         return ftpConfig;
     }
 
@@ -87,16 +126,37 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
         final ReadableConfig config = helper.getOptions();
         helper.validate();
 
-        TableSchema physicalSchema =
-                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
 
         DecodingFormat<DeserializationSchema<RowData>> decodingFormat =
                 helper.discoverDecodingFormat(
                         DeserializationFormatFactory.class, FtpOptions.FORMAT);
 
+        List<Column> columns = resolvedSchema.getColumns();
         FtpConfig ftpConfig = getFtpConfByOptions(config);
+        if (ftpConfig.getColumnIndex() != null
+                && columns.size() != ftpConfig.getColumnIndex().size()) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "The number of fields (%s) is inconsistent with the number of indexes (%s).",
+                            columns.size(), ftpConfig.getColumnIndex().size()));
+        }
+        List<FieldConfig> columnList = new ArrayList<>(columns.size());
+        for (Column column : columns) {
+            FieldConfig field = new FieldConfig();
+            field.setName(column.getName());
+            field.setType(
+                    TypeConfig.fromString(column.getDataType().getLogicalType().asSummaryString()));
+            int index =
+                    ftpConfig.getColumnIndex() != null
+                            ? ftpConfig.getColumnIndex().get(columns.indexOf(column))
+                            : columns.indexOf(column);
+            field.setIndex(index);
+            columnList.add(field);
+        }
+        ftpConfig.setColumn(columnList);
 
-        return new FtpDynamicTableSource(physicalSchema, ftpConfig, decodingFormat);
+        return new FtpDynamicTableSource(resolvedSchema, ftpConfig, decodingFormat);
     }
 
     @Override
@@ -104,10 +164,9 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
         final FactoryUtil.TableFactoryHelper helper =
                 FactoryUtil.createTableFactoryHelper(this, context);
         final ReadableConfig config = helper.getOptions();
-        helper.validate();
+        helper.validateExcept("csv.");
 
-        TableSchema physicalSchema =
-                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
 
         EncodingFormat<SerializationSchema<RowData>> valueEncodingFormat =
                 helper.discoverOptionalEncodingFormat(
@@ -119,8 +178,20 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
                                                 FtpOptions.FORMAT));
 
         FtpConfig ftpConfig = getFtpConfByOptions(config);
+        String compressType = ftpConfig.getCompressType();
+        if (StringUtils.isNotEmpty(compressType)) {
+            // 在文件类型扩展名后面追加压缩类型扩展名
+            String fileType = ftpConfig.getFileType();
+            if (CompressType.GZIP.name().equalsIgnoreCase(compressType)) {
+                ftpConfig.setFileType(fileType + ".gz");
+            } else if (CompressType.BZIP2.name().equalsIgnoreCase(compressType)) {
+                ftpConfig.setFileType(fileType + ".bz2");
+            } else {
+                throw new UnsupportedTypeException("not support compress type: " + compressType);
+            }
+        }
 
-        return new FtpDynamicTableSink(physicalSchema, ftpConfig, valueEncodingFormat);
+        return new FtpDynamicTableSink(resolvedSchema, ftpConfig, valueEncodingFormat);
     }
 
     @Override
@@ -147,6 +218,16 @@ public class FtpDynamicTableFactory implements DynamicTableSourceFactory, Dynami
         options.add(FtpOptions.ENCODING);
         options.add(FtpOptions.MAX_FILE_SIZE);
         options.add(FtpOptions.FORMAT);
+        options.add(FtpOptions.PORT);
+        options.add(FtpOptions.FILE_TYPE);
+        options.add(FtpOptions.CONNECT_PATTERN);
+        options.add(FtpOptions.FIRST_LINE_HEADER);
+        options.add(FtpOptions.FIELD_DELIMITER);
+        options.add(FtpOptions.COMPRESS_TYPE);
+        options.add(BaseFileOptions.NEXT_CHECK_ROWS);
+        options.add(BaseFileOptions.WRITE_MODE);
+        options.add(FtpOptions.SHEET_NO);
+        options.add(FtpOptions.COLUMN_INDEX);
         return options;
     }
 }

@@ -18,10 +18,10 @@
 
 package com.dtstack.chunjun.connector.jdbc.table;
 
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcConf;
-import com.dtstack.chunjun.connector.jdbc.conf.JdbcLookupConf;
-import com.dtstack.chunjun.connector.jdbc.conf.SinkConnectionConf;
-import com.dtstack.chunjun.connector.jdbc.conf.SourceConnectionConf;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcConfig;
+import com.dtstack.chunjun.connector.jdbc.config.JdbcLookupConfig;
+import com.dtstack.chunjun.connector.jdbc.config.SinkConnectionConfig;
+import com.dtstack.chunjun.connector.jdbc.config.SourceConnectionConfig;
 import com.dtstack.chunjun.connector.jdbc.dialect.JdbcDialect;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcDynamicTableSink;
 import com.dtstack.chunjun.connector.jdbc.sink.JdbcOutputFormat;
@@ -31,22 +31,22 @@ import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormat;
 import com.dtstack.chunjun.connector.jdbc.source.JdbcInputFormatBuilder;
 import com.dtstack.chunjun.connector.jdbc.util.JdbcUtil;
 import com.dtstack.chunjun.enums.Semantic;
-import com.dtstack.chunjun.lookup.conf.LookupConf;
+import com.dtstack.chunjun.lookup.config.LookupConfig;
 
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.table.api.TableSchema;
-import org.apache.flink.table.api.constraints.UniqueConstraint;
+import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.factories.DynamicTableSinkFactory;
 import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import org.apache.flink.table.factories.FactoryUtil;
-import org.apache.flink.table.utils.TableSchemaUtils;
 import org.apache.flink.util.Preconditions;
 
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -66,7 +66,11 @@ import static com.dtstack.chunjun.connector.jdbc.options.JdbcLookupOptions.VERTX
 import static com.dtstack.chunjun.connector.jdbc.options.JdbcLookupOptions.getLibConfMap;
 import static com.dtstack.chunjun.connector.jdbc.options.JdbcSinkOptions.SINK_ALL_REPLACE;
 import static com.dtstack.chunjun.connector.jdbc.options.JdbcSinkOptions.SINK_PARALLELISM;
+import static com.dtstack.chunjun.connector.jdbc.options.JdbcSinkOptions.SINK_POST_SQL;
+import static com.dtstack.chunjun.connector.jdbc.options.JdbcSinkOptions.SINK_PRE_SQL;
 import static com.dtstack.chunjun.connector.jdbc.options.JdbcSinkOptions.SINK_SEMANTIC;
+import static com.dtstack.chunjun.connector.jdbc.options.JdbcSourceOptions.SCAN_CUSTOM_SQL;
+import static com.dtstack.chunjun.connector.jdbc.options.JdbcSourceOptions.SCAN_WHERE;
 import static com.dtstack.chunjun.lookup.options.LookupOptions.LOOKUP_ASYNC_TIMEOUT;
 import static com.dtstack.chunjun.lookup.options.LookupOptions.LOOKUP_CACHE_MAX_ROWS;
 import static com.dtstack.chunjun.lookup.options.LookupOptions.LOOKUP_CACHE_PERIOD;
@@ -94,11 +98,6 @@ import static com.dtstack.chunjun.table.options.SinkOptions.SINK_BUFFER_FLUSH_MA
 import static com.dtstack.chunjun.table.options.SinkOptions.SINK_MAX_RETRIES;
 import static org.apache.flink.util.Preconditions.checkState;
 
-/**
- * @author chuixue
- * @create 2021-04-10 12:54
- * @description
- */
 public abstract class JdbcDynamicTableFactory
         implements DynamicTableSourceFactory, DynamicTableSinkFactory {
 
@@ -110,10 +109,10 @@ public abstract class JdbcDynamicTableFactory
         final ReadableConfig config = helper.getOptions();
 
         // 2.参数校验
-        TableSchema physicalSchema =
-                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
+
         helper.validateExcept(VERTX_PREFIX, DRUID_PREFIX);
-        validateConfigOptions(config, physicalSchema);
+        validateConfigOptions(config, resolvedSchema);
         // 3.封装参数
         JdbcDialect jdbcDialect = getDialect();
 
@@ -121,12 +120,12 @@ public abstract class JdbcDynamicTableFactory
                 getLibConfMap(context.getCatalogTable().getOptions(), DRUID_PREFIX);
 
         return new JdbcDynamicTableSource(
-                getSourceConnectionConf(helper.getOptions()),
-                getJdbcLookupConf(
+                getSourceConnectionConfig(helper.getOptions()),
+                getJdbcLookupConfig(
                         helper.getOptions(),
                         context.getObjectIdentifier().getObjectName(),
                         druidConf),
-                physicalSchema,
+                resolvedSchema,
                 jdbcDialect,
                 getInputFormatBuilder());
     }
@@ -140,49 +139,59 @@ public abstract class JdbcDynamicTableFactory
 
         // 2.参数校验
         helper.validate();
-        TableSchema physicalSchema =
-                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
-        validateConfigOptions(config, physicalSchema);
+
+        ResolvedSchema resolvedSchema = context.getCatalogTable().getResolvedSchema();
+        validateConfigOptions(config, resolvedSchema);
         JdbcDialect jdbcDialect = getDialect();
 
         // 3.封装参数
         return new JdbcDynamicTableSink(
-                getSinkConnectionConf(helper.getOptions(), physicalSchema),
+                getSinkConnectionConfig(helper.getOptions(), resolvedSchema),
                 jdbcDialect,
-                physicalSchema,
+                resolvedSchema,
                 getOutputFormatBuilder());
     }
 
-    protected JdbcConf getSinkConnectionConf(ReadableConfig readableConfig, TableSchema schema) {
-        JdbcConf jdbcConf = new JdbcConf();
-        SinkConnectionConf conf = new SinkConnectionConf();
-        jdbcConf.setConnection(Collections.singletonList(conf));
-
+    protected JdbcConfig getSinkConnectionConfig(
+            ReadableConfig readableConfig, ResolvedSchema schema) {
+        JdbcConfig jdbcConfig = new JdbcConfig();
+        SinkConnectionConfig conf = new SinkConnectionConfig();
+        jdbcConfig.setConnection(Collections.singletonList(conf));
         conf.setJdbcUrl(readableConfig.get(URL));
         conf.setTable(Arrays.asList(readableConfig.get(TABLE_NAME)));
         conf.setSchema(readableConfig.get(SCHEMA));
         conf.setAllReplace(readableConfig.get(SINK_ALL_REPLACE));
 
-        jdbcConf.setUsername(readableConfig.get(USERNAME));
-        jdbcConf.setPassword(readableConfig.get(PASSWORD));
+        jdbcConfig.setUsername(readableConfig.get(USERNAME));
+        jdbcConfig.setPassword(readableConfig.get(PASSWORD));
 
-        jdbcConf.setAllReplace(conf.getAllReplace());
-        jdbcConf.setBatchSize(readableConfig.get(SINK_BUFFER_FLUSH_MAX_ROWS));
-        jdbcConf.setFlushIntervalMills(readableConfig.get(SINK_BUFFER_FLUSH_INTERVAL));
-        jdbcConf.setParallelism(readableConfig.get(SINK_PARALLELISM));
-        jdbcConf.setSemantic(readableConfig.get(SINK_SEMANTIC));
+        jdbcConfig.setAllReplace(conf.isAllReplace());
+        jdbcConfig.setBatchSize(readableConfig.get(SINK_BUFFER_FLUSH_MAX_ROWS));
+        jdbcConfig.setFlushIntervalMills(readableConfig.get(SINK_BUFFER_FLUSH_INTERVAL));
+        jdbcConfig.setParallelism(readableConfig.get(SINK_PARALLELISM));
+        jdbcConfig.setSemantic(readableConfig.get(SINK_SEMANTIC));
 
-        List<String> keyFields =
-                schema.getPrimaryKey().map(UniqueConstraint::getColumns).orElse(null);
-        jdbcConf.setUniqueKey(keyFields);
-        resetTableInfo(jdbcConf);
-        return jdbcConf;
+        if (StringUtils.isNotEmpty(readableConfig.get(SINK_PRE_SQL))) {
+            jdbcConfig.setPreSql(Arrays.asList(readableConfig.get(SINK_PRE_SQL).split(";")));
+        }
+        if (StringUtils.isNotEmpty(readableConfig.get(SINK_POST_SQL))) {
+            jdbcConfig.setPostSql(Arrays.asList(readableConfig.get(SINK_POST_SQL).split(";")));
+        }
+
+        List<String> keyFields = new ArrayList<>();
+        if (schema.getPrimaryKey().isPresent()) {
+            keyFields = schema.getPrimaryKey().get().getColumns();
+        }
+
+        jdbcConfig.setUniqueKey(keyFields);
+        resetTableInfo(jdbcConfig);
+        return jdbcConfig;
     }
 
-    protected LookupConf getJdbcLookupConf(
+    protected LookupConfig getJdbcLookupConfig(
             ReadableConfig readableConfig, String tableName, Map<String, Object> druidConf) {
-        return JdbcLookupConf.build()
-                .setDruidConf(druidConf)
+        return JdbcLookupConfig.build()
+                .setDruidConfig(druidConf)
                 .setAsyncPoolSize(readableConfig.get(VERTX_WORKER_POOL_SIZE))
                 .setTableName(tableName)
                 .setPeriod(readableConfig.get(LOOKUP_CACHE_PERIOD))
@@ -196,55 +205,59 @@ public abstract class JdbcDynamicTableFactory
                 .setParallelism(readableConfig.get(LOOKUP_PARALLELISM));
     }
 
-    protected JdbcConf getSourceConnectionConf(ReadableConfig readableConfig) {
-        JdbcConf jdbcConf = new JdbcConf();
-        SourceConnectionConf conf = new SourceConnectionConf();
-        jdbcConf.setConnection(Collections.singletonList(conf));
+    protected JdbcConfig getSourceConnectionConfig(ReadableConfig readableConfig) {
+        JdbcConfig jdbcConfig = new JdbcConfig();
+        SourceConnectionConfig conf = new SourceConnectionConfig();
+        jdbcConfig.setConnection(Lists.newArrayList(conf));
 
-        conf.setJdbcUrl(Arrays.asList(readableConfig.get(URL)));
-        conf.setTable(Arrays.asList(readableConfig.get(TABLE_NAME)));
+        conf.setJdbcUrl(Lists.newArrayList(readableConfig.get(URL)));
+        conf.setTable(Lists.newArrayList(readableConfig.get(TABLE_NAME)));
         conf.setSchema(readableConfig.get(SCHEMA));
 
-        jdbcConf.setJdbcUrl(readableConfig.get(URL));
-        jdbcConf.setUsername(readableConfig.get(USERNAME));
-        jdbcConf.setPassword(readableConfig.get(PASSWORD));
+        jdbcConfig.setJdbcUrl(readableConfig.get(URL));
+        jdbcConfig.setUsername(readableConfig.get(USERNAME));
+        jdbcConfig.setPassword(readableConfig.get(PASSWORD));
 
-        jdbcConf.setParallelism(readableConfig.get(SCAN_PARALLELISM));
-        jdbcConf.setFetchSize(
+        jdbcConfig.setParallelism(readableConfig.get(SCAN_PARALLELISM));
+        jdbcConfig.setFetchSize(
                 readableConfig.get(SCAN_FETCH_SIZE) == 0
                         ? getDefaultFetchSize()
                         : readableConfig.get(SCAN_FETCH_SIZE));
-        jdbcConf.setQueryTimeOut(readableConfig.get(SCAN_QUERY_TIMEOUT));
+        jdbcConfig.setQueryTimeOut(readableConfig.get(SCAN_QUERY_TIMEOUT));
 
-        jdbcConf.setSplitPk(readableConfig.get(SCAN_PARTITION_COLUMN));
-        jdbcConf.setSplitStrategy(readableConfig.get(SCAN_PARTITION_STRATEGY));
+        jdbcConfig.setSplitPk(readableConfig.get(SCAN_PARTITION_COLUMN));
+        jdbcConfig.setSplitStrategy(readableConfig.get(SCAN_PARTITION_STRATEGY));
 
         String increColumn = readableConfig.get(SCAN_INCREMENT_COLUMN);
         if (StringUtils.isNotBlank(increColumn)) {
-            jdbcConf.setIncrement(true);
-            jdbcConf.setIncreColumn(increColumn);
-            jdbcConf.setIncreColumnType(readableConfig.get(SCAN_INCREMENT_COLUMN_TYPE));
+            jdbcConfig.setIncrement(true);
+            jdbcConfig.setIncreColumn(increColumn);
+            jdbcConfig.setIncreColumnType(readableConfig.get(SCAN_INCREMENT_COLUMN_TYPE));
         }
 
-        jdbcConf.setOrderByColumn(readableConfig.get(SCAN_ORDER_BY_COLUMN));
+        jdbcConfig.setOrderByColumn(readableConfig.get(SCAN_ORDER_BY_COLUMN));
 
-        jdbcConf.setStartLocation(readableConfig.get(SCAN_START_LOCATION));
+        jdbcConfig.setStartLocation(readableConfig.get(SCAN_START_LOCATION));
 
-        jdbcConf.setRestoreColumn(readableConfig.get(SCAN_RESTORE_COLUMNNAME));
-        jdbcConf.setRestoreColumnType(readableConfig.get(SCAN_RESTORE_COLUMNTYPE));
+        jdbcConfig.setRestoreColumn(readableConfig.get(SCAN_RESTORE_COLUMNNAME));
+        jdbcConfig.setRestoreColumnType(readableConfig.get(SCAN_RESTORE_COLUMNTYPE));
 
         Optional<Integer> pollingInterval = readableConfig.getOptional(SCAN_POLLING_INTERVAL);
         if (pollingInterval.isPresent() && pollingInterval.get() > 0) {
-            jdbcConf.setPolling(true);
-            jdbcConf.setPollingInterval(pollingInterval.get());
-            jdbcConf.setFetchSize(
+            jdbcConfig.setPolling(true);
+            jdbcConfig.setPollingInterval(pollingInterval.get());
+            jdbcConfig.setFetchSize(
                     readableConfig.get(SCAN_FETCH_SIZE) == 0
                             ? SCAN_DEFAULT_FETCH_SIZE.defaultValue()
                             : readableConfig.get(SCAN_FETCH_SIZE));
         }
 
-        resetTableInfo(jdbcConf);
-        return jdbcConf;
+        jdbcConfig.setWhere(readableConfig.get(SCAN_WHERE));
+        jdbcConfig.setCustomSql(readableConfig.get(SCAN_CUSTOM_SQL));
+        if (StringUtils.isBlank(jdbcConfig.getCustomSql())) {
+            resetTableInfo(jdbcConfig);
+        }
+        return jdbcConfig;
     }
 
     @Override
@@ -274,6 +287,8 @@ public abstract class JdbcDynamicTableFactory
         optionalOptions.add(SCAN_RESTORE_COLUMNNAME);
         optionalOptions.add(SCAN_RESTORE_COLUMNTYPE);
         optionalOptions.add(SCAN_ORDER_BY_COLUMN);
+        optionalOptions.add(SCAN_WHERE);
+        optionalOptions.add(SCAN_CUSTOM_SQL);
 
         optionalOptions.add(LOOKUP_CACHE_PERIOD);
         optionalOptions.add(LOOKUP_CACHE_MAX_ROWS);
@@ -291,10 +306,12 @@ public abstract class JdbcDynamicTableFactory
         optionalOptions.add(SINK_ALL_REPLACE);
         optionalOptions.add(SINK_PARALLELISM);
         optionalOptions.add(SINK_SEMANTIC);
+        optionalOptions.add(SINK_PRE_SQL);
+        optionalOptions.add(SINK_POST_SQL);
         return optionalOptions;
     }
 
-    protected void validateConfigOptions(ReadableConfig config, TableSchema tableSchema) {
+    protected void validateConfigOptions(ReadableConfig config, ResolvedSchema tableSchema) {
         String jdbcUrl = config.get(URL);
         final Optional<JdbcDialect> dialect = Optional.of(getDialect());
         checkState(dialect.get().canHandle(jdbcUrl), "Cannot handle such jdbc url: " + jdbcUrl);
@@ -337,7 +354,7 @@ public abstract class JdbcDynamicTableFactory
         String orderByColumn = config.get(SCAN_ORDER_BY_COLUMN);
         if (orderByColumn != null) {
             boolean isExist =
-                    tableSchema.getTableColumns().stream()
+                    tableSchema.getColumns().stream()
                             .anyMatch(tableColumn -> tableColumn.getName().equals(orderByColumn));
             if (!isExist) {
                 throw new IllegalArgumentException(
@@ -406,9 +423,9 @@ public abstract class JdbcDynamicTableFactory
     }
 
     /** table字段有可能是schema.table格式 需要转换为对应的schema 和 table 字段* */
-    protected void resetTableInfo(JdbcConf jdbcConf) {
-        if (StringUtils.isBlank(jdbcConf.getSchema())) {
-            JdbcUtil.resetSchemaAndTable(jdbcConf, "\\\"", "\\\"");
+    protected void resetTableInfo(JdbcConfig jdbcConfig) {
+        if (StringUtils.isBlank(jdbcConfig.getSchema())) {
+            JdbcUtil.resetSchemaAndTable(jdbcConfig, "\\\"", "\\\"");
         }
     }
 }

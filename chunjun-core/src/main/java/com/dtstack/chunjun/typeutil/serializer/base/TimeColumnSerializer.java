@@ -31,7 +31,6 @@ import org.apache.flink.core.memory.DataOutputView;
 import java.io.IOException;
 import java.sql.Time;
 
-/** @author liuliu 2022/5/12 */
 public class TimeColumnSerializer extends TypeSerializerSingleton<AbstractBaseColumn> {
 
     private static final long serialVersionUID = 1L;
@@ -39,6 +38,7 @@ public class TimeColumnSerializer extends TypeSerializerSingleton<AbstractBaseCo
     /** Sharable instance of the TimeColumnSerializer. */
     public static final TimeColumnSerializer INSTANCE = new TimeColumnSerializer();
 
+    private static final NullColumn REUSE_NULL = new NullColumn();
     private static final TimeColumn EMPTY = new TimeColumn(0);
 
     @Override
@@ -53,7 +53,7 @@ public class TimeColumnSerializer extends TypeSerializerSingleton<AbstractBaseCo
 
     @Override
     public AbstractBaseColumn copy(AbstractBaseColumn from) {
-        if (from instanceof NullColumn) {
+        if (from instanceof NullColumn || from == null) {
             return new NullColumn();
         }
         return TimeColumn.from(from.asTime());
@@ -75,20 +75,19 @@ public class TimeColumnSerializer extends TypeSerializerSingleton<AbstractBaseCo
     @Override
     public void serialize(AbstractBaseColumn record, DataOutputView target) throws IOException {
         if (record == null || record instanceof NullColumn) {
-            target.writeBoolean(false);
+            target.writeLong(Long.MIN_VALUE);
         } else {
-            target.writeBoolean(true);
-            target.writeLong(record.asTime().getTime());
+            target.writeLong(((Time) record.getData()).getTime());
         }
     }
 
     @Override
     public AbstractBaseColumn deserialize(DataInputView source) throws IOException {
-        boolean isNotNull = source.readBoolean();
-        if (isNotNull) {
-            return TimeColumn.from(new Time(source.readLong()));
+        long value = source.readLong();
+        if (value == Long.MIN_VALUE) {
+            return REUSE_NULL;
         } else {
-            return new NullColumn();
+            return TimeColumn.from(new Time(value));
         }
     }
 
@@ -100,11 +99,7 @@ public class TimeColumnSerializer extends TypeSerializerSingleton<AbstractBaseCo
 
     @Override
     public void copy(DataInputView source, DataOutputView target) throws IOException {
-        boolean isNotNull = source.readBoolean();
-        target.writeBoolean(isNotNull);
-        if (isNotNull) {
-            target.writeLong(source.readLong());
-        }
+        target.writeLong(source.readLong());
     }
 
     @Override

@@ -21,25 +21,26 @@ import com.alibaba.otter.canal.protocol.CanalEntry;
 
 import java.io.Serializable;
 
-/**
- * Date: 2021/04/30 Company: www.dtstack.com
- *
- * @author tudou
- */
 public class BinlogEventRow implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final CanalEntry.RowChange rowChange;
     private final String schema;
     private final String table;
+    private final String lsn;
     private final long executeTime;
 
     public BinlogEventRow(
-            CanalEntry.RowChange rowChange, String schema, String table, long executeTime) {
+            CanalEntry.RowChange rowChange,
+            String schema,
+            String table,
+            long executeTime,
+            String lsn) {
         this.rowChange = rowChange;
         this.schema = schema;
         this.table = table;
         this.executeTime = executeTime;
+        this.lsn = lsn;
     }
 
     public CanalEntry.RowChange getRowChange() {
@@ -58,6 +59,10 @@ public class BinlogEventRow implements Serializable {
         return executeTime;
     }
 
+    public String getLsn() {
+        return lsn;
+    }
+
     @Override
     public String toString() {
         return "BinlogEventRow{"
@@ -71,6 +76,9 @@ public class BinlogEventRow implements Serializable {
                 + '\''
                 + ", executeTime="
                 + executeTime
+                + '\''
+                + ", lsn="
+                + lsn
                 + '}';
     }
 }

@@ -18,12 +18,12 @@
 
 package com.dtstack.chunjun.connector.kudu.source;
 
-import com.dtstack.chunjun.conf.FieldConf;
-import com.dtstack.chunjun.conf.SyncConf;
-import com.dtstack.chunjun.connector.kudu.conf.KuduSourceConf;
-import com.dtstack.chunjun.connector.kudu.converter.KuduColumnConverter;
-import com.dtstack.chunjun.connector.kudu.converter.KuduRawTypeConverter;
-import com.dtstack.chunjun.converter.RawTypeConverter;
+import com.dtstack.chunjun.config.FieldConfig;
+import com.dtstack.chunjun.config.SyncConfig;
+import com.dtstack.chunjun.connector.kudu.config.KuduSourceConfig;
+import com.dtstack.chunjun.connector.kudu.converter.KuduRawTypeMapper;
+import com.dtstack.chunjun.connector.kudu.converter.KuduSyncConverter;
+import com.dtstack.chunjun.converter.RawTypeMapper;
 import com.dtstack.chunjun.source.SourceFactory;
 import com.dtstack.chunjun.util.JsonUtil;
 import com.dtstack.chunjun.util.TableUtil;
@@ -36,28 +36,25 @@ import org.apache.flink.table.types.logical.RowType;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author tiezhu
- * @since 2021/6/9 星期三
- */
 public class KuduSourceFactory extends SourceFactory {
 
-    private final KuduSourceConf sourceConf;
+    private final KuduSourceConfig sourceConf;
 
-    public KuduSourceFactory(SyncConf syncConf, StreamExecutionEnvironment env) {
-        super(syncConf, env);
+    public KuduSourceFactory(SyncConfig syncConfig, StreamExecutionEnvironment env) {
+        super(syncConfig, env);
 
         sourceConf =
                 JsonUtil.toObject(
-                        JsonUtil.toJson(syncConf.getReader().getParameter()), KuduSourceConf.class);
-        sourceConf.setColumn(syncConf.getReader().getFieldList());
+                        JsonUtil.toJson(syncConfig.getReader().getParameter()),
+                        KuduSourceConfig.class);
+        sourceConf.setColumn(syncConfig.getReader().getFieldList());
         sourceConf.setKerberos(sourceConf.conventHadoopConfig());
         super.initCommonConf(sourceConf);
     }
 
     @Override
-    public RawTypeConverter getRawTypeConverter() {
-        return KuduRawTypeConverter::apply;
+    public RawTypeMapper getRawTypeMapper() {
+        return KuduRawTypeMapper::apply;
     }
 
     @Override
@@ -66,15 +63,14 @@ public class KuduSourceFactory extends SourceFactory {
 
         builder.setKuduSourceConf(sourceConf);
 
-        final RowType rowType =
-                TableUtil.createRowType(sourceConf.getColumn(), getRawTypeConverter());
+        final RowType rowType = TableUtil.createRowType(sourceConf.getColumn(), getRawTypeMapper());
 
-        List<FieldConf> fieldConfList = sourceConf.getColumn();
+        List<FieldConfig> fieldConfList = sourceConf.getColumn();
         List<String> columnNameList = new ArrayList<>();
-        fieldConfList.forEach(fieldConf -> columnNameList.add(fieldConf.getName()));
+        fieldConfList.forEach(fieldConfig -> columnNameList.add(fieldConfig.getName()));
 
         builder.setRowConverter(
-                new KuduColumnConverter(rowType, columnNameList), useAbstractBaseColumn);
+                new KuduSyncConverter(rowType, columnNameList), useAbstractBaseColumn);
 
         return createInput(builder.finish());
     }

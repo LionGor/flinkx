@@ -21,9 +21,8 @@ package com.dtstack.chunjun.typeutil.serializer.base;
 import com.dtstack.chunjun.element.AbstractBaseColumn;
 import com.dtstack.chunjun.element.column.NullColumn;
 import com.dtstack.chunjun.element.column.SqlDateColumn;
-import com.dtstack.chunjun.element.column.TimestampColumn;
+import com.dtstack.chunjun.typeutil.SerializerTestBase;
 import com.dtstack.chunjun.typeutil.serializer.DeeplyEqualsChecker;
-import com.dtstack.chunjun.typeutil.serializer.SerializerTestBase;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -31,21 +30,15 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import java.sql.Date;
 import java.util.function.BiFunction;
 
-/** @author liuliu 2022/5/13 */
 public class SqlDateColumnSerializerTest extends SerializerTestBase<AbstractBaseColumn> {
 
     @Override
     protected Tuple2<BiFunction<Object, Object, Boolean>, DeeplyEqualsChecker.CustomEqualityChecker>
             getCustomChecker() {
         return Tuple2.of(
-                new BiFunction<Object, Object, Boolean>() {
-                    @Override
-                    public Boolean apply(Object o, Object o2) {
-                        return (o instanceof SqlDateColumn && o2 instanceof SqlDateColumn)
-                                || (o instanceof TimestampColumn && o2 instanceof TimestampColumn)
-                                || (o instanceof NullColumn && o2 instanceof NullColumn);
-                    }
-                },
+                (o, o2) ->
+                        (o instanceof SqlDateColumn && o2 instanceof SqlDateColumn)
+                                || (o instanceof NullColumn && o2 instanceof NullColumn),
                 new SqlDateColumnChecker());
     }
 
@@ -69,8 +62,7 @@ public class SqlDateColumnSerializerTest extends SerializerTestBase<AbstractBase
         return new AbstractBaseColumn[] {
             new NullColumn(),
             new SqlDateColumn(100),
-            new SqlDateColumn(new Date(System.currentTimeMillis())),
-            new TimestampColumn(System.currentTimeMillis(), 0)
+            new SqlDateColumn(new Date(System.currentTimeMillis()))
         };
     }
 
@@ -81,11 +73,6 @@ public class SqlDateColumnSerializerTest extends SerializerTestBase<AbstractBase
             if (o1 instanceof SqlDateColumn && o2 instanceof SqlDateColumn) {
                 return ((SqlDateColumn) o1).asSqlDate().getTime()
                         == ((SqlDateColumn) o2).asSqlDate().getTime();
-            } else if (o1 instanceof TimestampColumn && o2 instanceof TimestampColumn) {
-                return ((TimestampColumn) o1).asTimestamp().getTime()
-                                == ((TimestampColumn) o2).asTimestamp().getTime()
-                        && ((TimestampColumn) o1).getPrecision()
-                                == ((TimestampColumn) o2).getPrecision();
             } else {
                 return o1 instanceof NullColumn && o2 instanceof NullColumn;
             }

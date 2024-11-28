@@ -21,13 +21,6 @@ package com.dtstack.chunjun.constants;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Statistics Metrics
- *
- * <p>Company: www.dtstack.com
- *
- * @author huyifan.zju@163.com
- */
 public class Metrics {
 
     public static final String NUM_ERRORS = "nErrors";
@@ -65,6 +58,8 @@ public class Metrics {
     public static final String START_LOCATION = "startLocation";
 
     public static final String MAX_VALUE = "maxValue";
+
+    public static final String MAX_VALUE_NONE = "CHUNJUN_MAX_VALUE_NONE";
 
     public static final String METRIC_GROUP_KEY_CHUNJUN = "chunjun";
 
